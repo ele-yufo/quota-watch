@@ -59,6 +59,12 @@ struct MenuBarView: View {
         if store.providerGroups.isEmpty && store.errorMessage == nil {
             emptyState
         } else {
+            // A ScrollView inside a MenuBarExtra(.window) popover collapses to
+            // zero height: the window sizes itself to content, the ScrollView
+            // gets no height proposal, and renders blank (an earlier bug that
+            // looked like "no data" when the data was actually present). Give it
+            // an explicit height — exact fit for short lists, capped + scrollable
+            // for long ones.
             ScrollView {
                 VStack(spacing: 10) {
                     ForEach(store.providerGroups) { group in
@@ -68,8 +74,22 @@ struct MenuBarView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
-            .frame(maxHeight: 420)
+            .frame(height: min(estimatedContentHeight, 460))
         }
+    }
+
+    /// Approximate rendered height of the provider list so the ScrollView gets a
+    /// concrete, non-zero frame. Small lists fit exactly; anything past the 460
+    /// cap scrolls. Per-section chrome ≈ title + card padding; per-row ≈ chip +
+    /// bar + footer line.
+    private var estimatedContentHeight: CGFloat {
+        let sections = store.providerGroups
+        let rowCount = sections.reduce(0) { $0 + max(1, $1.items.count) }
+        let sectionChrome = CGFloat(sections.count) * 58
+        let rowsHeight = CGFloat(rowCount) * 56
+        let interSectionSpacing = CGFloat(max(0, sections.count - 1)) * 10
+        let outerPadding: CGFloat = 24
+        return sectionChrome + rowsHeight + interSectionSpacing + outerPadding
     }
 
     private var emptyState: some View {
