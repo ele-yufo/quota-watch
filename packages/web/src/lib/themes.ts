@@ -26,13 +26,14 @@ export function isValidTheme(id: string | null | undefined): id is string {
 }
 
 /**
- * Script (stringified) that applies the persisted theme before first paint,
- * preventing a flash of the default theme. Injected into <head>.
+ * Script (stringified) that applies the theme before first paint (no flash).
+ * Precedence: `?theme=` URL param (shareable deep links) → localStorage → default.
+ * Injected into <head>.
  */
-export const THEME_BOOTSTRAP_SCRIPT = `(function(){try{var t=localStorage.getItem(${JSON.stringify(
-  THEME_STORAGE_KEY,
-)});var valid=${JSON.stringify(
+export const THEME_BOOTSTRAP_SCRIPT = `(function(){try{var valid=${JSON.stringify(
   THEMES.map((t) => t.id),
-)};if(t&&valid.indexOf(t)>-1){document.documentElement.setAttribute('data-theme',t);}else{document.documentElement.setAttribute('data-theme',${JSON.stringify(
+)};var q=new URLSearchParams(location.search).get('theme');var s=localStorage.getItem(${JSON.stringify(
+  THEME_STORAGE_KEY,
+)});var t=(q&&valid.indexOf(q)>-1)?q:((s&&valid.indexOf(s)>-1)?s:${JSON.stringify(
   DEFAULT_THEME,
-)});}}catch(e){}})();`;
+)});document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;

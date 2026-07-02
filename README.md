@@ -1,28 +1,83 @@
-# quota-watch
+<div align="center">
 
-> AI subscription quota monitoring — track usage, predict exhaustion, get alerts.
+# quota·watch
 
-## Features
-- **8 Providers**: Claude Code, Codex, GLM-CN, OpenCode Go, Kimi, Antigravity, GitHub Copilot, Gemini CLI
-- **Near-realtime polling**: ~10s when usage is moving, 60s when idle (per-provider floors protect heavy upstreams)
-- **Native integrations**: every provider is a direct HTTP client — no shelling out to community CLIs
-- **Unified window model**: every quota window carries a `kind` (session/day/week/month) — fixed display order everywhere
-- **5 web themes**: Magazine (default), Terminal, OLED, Swiss, Blueprint — switch live, persisted per browser
-- **Daemon HTTP API**: one machine-readable surface for web, menu bar, and the iOS app (LAN or public)
-- **iOS app**: SwiftUI, QR-code pairing, haptics, connects over LAN or public network
-- **macOS menu bar**: per-provider progress bars in a popover, worst-quota % in the bar
-- **Multi-channel alerts**: macOS notifications + Discord webhooks
-- **Local-first & private**: SQLite persistence, credentials never leave the machine, no cloud dependency
+**Local-first quota monitoring for your AI coding subscriptions.**
 
-## Quick start (from source)
+See how much of each plan you've burned — and how long until it resets — across
+Claude Code, Codex, GLM, OpenCode Go, Kimi, Antigravity and more.
+On your desktop, in your menu bar, and on your iPhone.
+No cloud, no telemetry — your tokens never leave your machine.
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-Web%20·%20iOS%20·%20macOS%20·%20CLI-lightgrey)
+![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
+
+<img src="docs/screenshots/web-terminal.png" width="820" alt="quota-watch web dashboard — terminal theme" />
+
+</div>
+
+---
+
+## Why
+
+If you juggle several AI coding subscriptions, you know the moment: mid-flow, a
+plan silently caps out and everything stalls. **quota-watch** polls each
+provider's real quota API in near-realtime, normalizes them into one model, and
+shows you — everywhere you look — exactly how much is left and when it resets.
+
+## Highlights
+
+- 🛰 **8 providers, natively integrated** — Claude Code, Codex, GLM, OpenCode Go, Kimi, Antigravity, GitHub Copilot, Gemini CLI. Direct HTTP clients; no shelling out to community tools.
+- ⚡ **Near-realtime** — ~10 s when usage is moving, backing off when idle. GLM tips over its cap and you see it in seconds, not half an hour.
+- 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month), so `5h`, `7d` and `1mo` always read the same order across every surface.
+- 🎨 **Five web dashboards, five layouts** — not recolours. Each theme is its own composition, visualization and motion (see below).
+- 📱 **iOS app** — a dark instrument UI with real provider logos and ring gauges; connects to your Mac over the LAN or a tunnel, pairs by QR.
+- 🖥 **macOS menu bar** — the worst window's % in the bar, a per-provider popover on click.
+- 🔒 **Local-first & private** — SQLite on your machine; credentials are used only to call each provider's own API and are never uploaded anywhere.
+
+## The web dashboard — one product, five personalities
+
+Every theme is a *different dashboard*, not a swapped palette. Switch live from the
+control dock (top-right, always in the same place).
+
+<table>
+  <tr>
+    <td width="50%"><b>Magazine</b> — editorial broadsheet<br/><img src="docs/screenshots/web-magazine.png" alt="Magazine theme" /></td>
+    <td width="50%"><b>Terminal</b> — btop-style CLI, ASCII gauges, CRT scanlines<br/><img src="docs/screenshots/web-terminal.png" alt="Terminal theme" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><b>OLED</b> — pure black, giant figures<br/><img src="docs/screenshots/web-oled.png" alt="OLED theme" /></td>
+    <td width="50%"><b>Swiss</b> — International Typographic grid<br/><img src="docs/screenshots/web-swiss.png" alt="Swiss theme" /></td>
+  </tr>
+  <tr>
+    <td colspan="2"><b>Blueprint</b> — a technical drawing sheet with SVG gauge instruments<br/><img src="docs/screenshots/web-blueprint.png" width="60%" alt="Blueprint theme" /></td>
+  </tr>
+</table>
+
+## The iOS app
+
+<img src="docs/screenshots/ios-main.png" width="300" align="right" alt="quota-watch iOS app" />
+
+- **Ring-gauge dials** per window, coloured by headroom, with brand logos for every provider.
+- **QR pairing** — run `quota-watch connect --qr` on the Mac and scan; host / port / token fill in automatically.
+- **LAN or public** — connects over your local network or a tunnel (Tailscale / Cloudflare); it warns before sending a token in the clear to a public host.
+- **Dismissible alerts, haptics, live refresh** — the critical-window banner clears with a tap and only returns when something *new* goes critical.
+
+SwiftUI, iOS 18+. See [`ios/README.md`](ios/README.md) to build it.
+
+<br clear="all" />
+
+## Quick start
+
 ```bash
 pnpm install
 pnpm build
 
-# 1. connect providers — either interactively:
-node packages/cli/dist/index.js config add claude
-#    ...or via the web setup page (recommended, supports credential auto-detect):
+# 1. connect providers (web setup page — supports credential auto-detect):
 cd packages/web && npx next start -p 3000   # open http://localhost:3000/setup
+#    ...or from the CLI:
+node packages/cli/dist/index.js config add claude
 
 # 2. start the polling daemon (embedded API on 127.0.0.1:3737)
 node packages/cli/dist/index.js daemon start
@@ -32,138 +87,70 @@ open http://localhost:3000
 ```
 
 ## Commands
+
 | Command | Description |
 |---|---|
-| `quota-watch status` | Quick quota overview |
-| `quota-watch status --json` | Machine-readable output |
-| `quota-watch dashboard` | Interactive TUI (press q to quit) |
-| `quota-watch config list` | Show configured providers |
-| `quota-watch config add <provider>` | Add a provider |
-| `quota-watch config test <provider>` | Test connection |
-| `quota-watch config remove <provider>` | Remove a provider |
-| `quota-watch daemon start` | Start background polling + API (127.0.0.1:3737) |
-| `quota-watch daemon start --lan` | Same, but bind 0.0.0.0 with token auth (for iOS) |
-| `quota-watch daemon stop` | Stop background polling |
-| `quota-watch daemon status` | Check daemon status |
-| `quota-watch connect` | Show host/port/token for pairing the iOS app |
+| `quota-watch status [--json]` | Quick quota overview |
+| `quota-watch dashboard` | Interactive TUI |
+| `quota-watch config add/list/test/remove <provider>` | Manage providers |
+| `quota-watch daemon start [--lan]` | Background polling + API (`--lan` binds `0.0.0.0` with token auth, for iOS) |
+| `quota-watch connect [--qr] [--host <addr>]` | Pair the iOS app (QR / manual; `--host` for a public address) |
 
 ## Supported providers
+
 | Provider | Windows | Credentials |
 |---|---|---|
 | Claude Code | 5h session, 7d weekly (+sonnet) | reuses `~/.claude/.credentials.json`, auto-refresh |
 | Codex | 5h session, 7d weekly | reuses `~/.codex/auth.json`, auto-refresh |
 | GLM-CN | 5h session, 7d weekly | Coding Plan API key |
-| OpenCode Go | 5h session, 7d weekly, 1mo monthly | `workspaceId` + opencode.ai `auth` cookie (auto-imports from `@slkiser/opencode-quota` config if present) |
+| OpenCode Go | 5h session, 7d weekly, 1mo monthly | opencode.ai `auth` cookie + workspace id |
 | Kimi | 5h session, 7d weekly | Kimi Code API key |
-| Antigravity | 5h Gemini pool, 5h Claude+GPT pool | reuses `antigravity-usage` CLI token store (`antigravity-usage login` once), auto-refresh via Google OAuth |
-| GitHub Copilot | monthly chat/completions/premium | GitHub token (P2) |
+| Antigravity | 5h Gemini pool, 5h Claude+GPT pool | reuses the `antigravity-usage` CLI token store |
+| GitHub Copilot | monthly allowances | GitHub token (P2) |
 | Gemini CLI | daily per-model buckets | Google OAuth token (P2) |
 
-OpenCode Go window semantics (server-defined, we just trust `resetInSec`):
-5h is a true rolling window; **weekly resets Monday 00:00 UTC** (ISO-week boundary);
-**monthly resets on your subscription's billing-cycle timestamp**, not the calendar month.
+OpenCode Go window semantics (server-defined): 5h is a true rolling window;
+**weekly resets Monday 00:00 UTC**; **monthly resets on your billing-cycle
+timestamp**, not the calendar month.
 
-## Window kinds
-Every `QuotaWindow` carries `kind: session | day | week | month | balance | unknown`
-(`packages/core/src/windows.ts`). UIs sort by kind so every provider reads the same
-left-to-right: session → day → week → month. Stored in `quota_snapshots.window_kind`
-(DB migration v2 backfills legacy rows).
+## Architecture
 
-## Polling cadence
-Defaults (override in `~/.quota-watch/config.json` → `poll`):
+```
+quota-watch/
+├── packages/core/    unified quota model (window kinds) + providers + scheduler
+│                     + alerter + daemon HTTP API + CLI-credential reuse/refresh
+├── packages/cli/     status · config · dashboard · daemon · connect (QR pairing)
+├── packages/web/     Next.js dashboard — 5 per-theme layouts, :3000
+├── ios/              SwiftUI app — connects to the daemon over LAN / tunnel
+└── mac/              macOS menu bar (reads the same SQLite)
+```
 
-| Tier | Interval | When |
-|---|---|---|
-| fast | 10s | usage changed since last poll, or a window is under an alert threshold |
-| base | 15s | steady state |
-| idle | 60s | 3+ consecutive unchanged polls |
+The daemon is the hub: it polls providers, persists snapshots to SQLite, and serves
+one HTTP API (`/health`, `/quota`, `/poll`). Web, menu bar and iOS are all views of it.
 
-Providers may declare `minPollIntervalMs` floors (OpenCode Go / Antigravity: 30s —
-dashboard scrape / Google-internal API politeness). The web dashboard re-reads every 10s
-and has a manual "↻ refresh" that forces an immediate poll through the daemon.
+## Configuration
 
-## Daemon API
-The daemon embeds an HTTP API (default `127.0.0.1:3737`, configurable in
-`~/.quota-watch/config.json` → `api`):
+`~/.quota-watch/config.json` (created on demand):
 
-| Endpoint | Description |
-|---|---|
-| `GET /health` | daemon liveness, per-provider poll intervals |
-| `GET /quota` | latest snapshot per provider×window, kind-sorted |
-| `POST /poll[?provider=id]` | force an immediate poll |
-
-Loopback requests need no auth. Non-loopback requests require
-`Authorization: Bearer <api.token>` — the token is auto-generated when you run
-`quota-watch daemon start --lan`.
-
-## Configuration file
-`~/.quota-watch/config.json` (created on demand, all fields optional):
 ```json
 {
   "poll": { "fastMs": 10000, "baseMs": 15000, "idleMs": 60000 },
-  "api": { "host": "127.0.0.1", "port": 3737, "token": null }
+  "api":  { "host": "127.0.0.1", "port": 3737, "token": null }
 }
 ```
 
-## Web dashboard
-```bash
-cd packages/web && npx next start -p 3000   # or `next dev` while developing
-```
-Open http://localhost:3000 — provider rows show up to 3 windows inline
-(session/weekly/monthly), daemon status, manual refresh, an at-risk strip, and a
-theme switcher (Magazine / Terminal / OLED / Swiss / Blueprint, top right).
-First-run onboarding lives at `/setup`: a privacy/credentials disclosure,
-per-provider "how it's sourced" hints, and credential auto-detect for Claude /
-Codex / Antigravity / OpenCode Go.
+The daemon API needs no auth for loopback clients; non-loopback (LAN/public) clients
+must send `Authorization: Bearer <api.token>`, auto-generated by `daemon start --lan`.
 
-## iOS app
-```bash
-# on the Mac
-quota-watch daemon start --lan
-quota-watch connect --qr     # prints a QR encoding host/port/token
-# for public access: quota-watch connect --qr --host <public-ip-or-domain>
+## Privacy
 
-# then: generate + open the Xcode project (see ios/README.md), run on your iPhone,
-# tap "扫码配对" to scan the QR (or enter host/port/token manually)
-```
-SwiftUI, iOS 17+. Reads `GET /quota` over the LAN or a public host and
-auto-refreshes every 10s. Polished with haptics, numeric-roll transitions, and a
-skeleton loading state. Public (non-RFC1918) hosts get a cleartext-token warning
-recommending a tunnel (Tailscale / Cloudflare Tunnel) over a raw port-forward.
-See `docs/ios/swiftui-polish-playbook.md` for the SwiftUI practices used.
-
-## macOS menu bar
-```bash
-cd mac && swift build && .build/debug/QuotaWatchMenubar
-```
-The bar shows the worst window's used % (coloured by severity); the popover
-groups windows per provider with kind badges, progress bars, reset countdowns,
-and Refresh / Open web buttons.
-
-## Privacy & credentials
 - **Claude / Codex / Antigravity** reuse the tokens their official CLIs already
-  stored on disk — nothing to paste, auto-refreshed in place.
-- **GLM / Kimi / OpenCode Go** credentials you provide are written only to
+  stored on disk — nothing to paste, refreshed in place.
+- Credentials you provide (GLM / Kimi / OpenCode Go) are written only to
   `~/.quota-watch/data.db` (mode 600).
 - Credentials stay local, are used only to call each provider's own quota API,
-  and are never uploaded anywhere. The web UI only ever receives credential
-  field *names*, never values.
-
-## Alerting
-Configure alert rules in the web dashboard (click a provider row → alert rules), or
-directly in `~/.quota-watch/data.db`. Channels: macOS native notifications, Discord
-webhooks (`DISCORD_WEBHOOK_URL` env var for the daemon).
-
-## Architecture
-```
-quota-watch/
-├── packages/core/    types + windows(kind) + providers + scheduler + alerter
-│                     + config + api-server (daemon HTTP API) + auth (CLI token reuse/refresh)
-├── packages/cli/     CLI (status, config, dashboard, daemon, connect)
-├── packages/web/     Web dashboard (Next.js, :3000)
-├── ios/              iOS app (SwiftUI, connects to daemon API over LAN)
-└── mac/              macOS menu bar (Swift, reads the same SQLite)
-```
+  and are never uploaded. The web UI only ever receives credential field *names*.
 
 ## License
-MIT
+
+[MIT](LICENSE)
