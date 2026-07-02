@@ -1,0 +1,29 @@
+name: QuotaWatch
+options:
+  bundleIdPrefix: io.quotawatch
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+
+targets:
+  QuotaWatch:
+    type: application
+    platform: iOS
+    sources:
+      - path: QuotaWatch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.quotawatch.app
+        INFOPLIST_FILE: QuotaWatch/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        # Set your own Apple Developer team to run on a device — either put your
+        # team id here (DEVELOPMENT_TEAM: XXXXXXXXXX) or pick it in Xcode's
+        # Signing & Capabilities tab after `xcodegen generate`.

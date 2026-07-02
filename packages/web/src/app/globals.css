@@ -1,0 +1,218 @@
+@import "tailwindcss";
+
+/* ───────────────────────────────────────────────────────────
+   quota-watch — theming
+
+   Components use a small set of semantic tokens (paper = surface ladder,
+   ink = text ladder, line = rules, vermillion/ochre = danger/warn). The
+   default (:root) is the editorial "broadsheet" theme; each [data-theme]
+   block redefines the same tokens, so every component recolors without
+   touching component code. Fonts swap per theme via --font-serif/--font-mono
+   (headings use serif, labels use mono; a "sans" theme just points serif at
+   a system sans stack).
+   ─────────────────────────────────────────────────────────── */
+
+/* Tailwind reads these to generate utilities (bg-paper, text-ink, …). The
+   values here are the magazine defaults; [data-theme] overrides win at
+   runtime because they are more specific than :root. */
+@theme {
+  --color-paper: #f5f0e8;
+  --color-paper-2: #efe8da;
+  --color-paper-3: #e8e0cf;
+
+  --color-ink: #1a1815;
+  --color-ink-2: #6b6358;
+  --color-ink-3: #8a8275;
+  --color-ink-4: #b8ad9c;
+
+  --color-line: #1a181540;
+  --color-line-soft: #1a181518;
+
+  --color-vermillion: #c44536; /* low / danger */
+  --color-ochre: #8b5a2b;      /* warn / tight  */
+
+  --font-serif: var(--font-fraunces), "Songti SC", "Noto Serif SC", Georgia, serif;
+  --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
+}
+
+/* System sans stack reused by the sans-forward themes. */
+:root {
+  --qw-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Noto Sans SC", system-ui, sans-serif;
+  --qw-body-bg: var(--color-paper);
+  /* paper grain — the material this broadsheet is printed on */
+  --qw-body-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.1 0 0 0 0 0.09 0 0 0 0 0.08 0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  --qw-body-size: auto;
+  --qw-selection: rgba(196, 69, 54, 0.18);
+  --qw-scroll-thumb: #c9bfa9;
+  color-scheme: light;
+}
+
+/* ── Terminal — geek CRT dashboard ─────────────────────────── */
+html[data-theme="terminal"] {
+  --color-paper: #0a0f0a;
+  --color-paper-2: #0f160f;
+  --color-paper-3: #152015;
+
+  --color-ink: #6ee7a8;
+  --color-ink-2: #3faa6b;
+  --color-ink-3: #2d7a4d;
+  --color-ink-4: #1f5638;
+
+  --color-line: rgba(110, 231, 168, 0.24);
+  --color-line-soft: rgba(110, 231, 168, 0.10);
+
+  --color-vermillion: #ff5f56;
+  --color-ochre: #ffbd2e;
+
+  --font-serif: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
+  --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
+
+  --qw-body-bg: #060a06;
+  /* faint terminal grid + scanline feel */
+  --qw-body-image:
+    repeating-linear-gradient(0deg, rgba(110, 231, 168, 0.035) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(110, 231, 168, 0.02), rgba(110, 231, 168, 0.02));
+  --qw-body-size: auto;
+  --qw-selection: rgba(110, 231, 168, 0.22);
+  --qw-scroll-thumb: #1f5638;
+  color-scheme: dark;
+}
+
+/* ── OLED — pure-black high-contrast dark ──────────────────── */
+html[data-theme="oled"] {
+  --color-paper: #000000;
+  --color-paper-2: #0a0a0a;
+  --color-paper-3: #161616;
+
+  --color-ink: #f5f5f7;
+  --color-ink-2: #a1a1a6;
+  --color-ink-3: #6e6e73;
+  --color-ink-4: #48484a;
+
+  --color-line: rgba(255, 255, 255, 0.14);
+  --color-line-soft: rgba(255, 255, 255, 0.06);
+
+  --color-vermillion: #ff453a;
+  --color-ochre: #ff9f0a;
+
+  --font-serif: var(--qw-sans);
+  --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
+
+  --qw-body-bg: #000000;
+  --qw-body-image: none;
+  --qw-body-size: auto;
+  --qw-selection: rgba(255, 255, 255, 0.20);
+  --qw-scroll-thumb: #2a2a2a;
+  color-scheme: dark;
+}
+
+/* ── Swiss — minimal light ─────────────────────────────────── */
+html[data-theme="swiss"] {
+  --color-paper: #ffffff;
+  --color-paper-2: #f6f6f7;
+  --color-paper-3: #ececee;
+
+  --color-ink: #09090b;
+  --color-ink-2: #52525b;
+  --color-ink-3: #8e8e93;
+  --color-ink-4: #c3c3c8;
+
+  --color-line: rgba(0, 0, 0, 0.12);
+  --color-line-soft: rgba(0, 0, 0, 0.05);
+
+  --color-vermillion: #e5342a;
+  --color-ochre: #d97706;
+
+  --font-serif: var(--qw-sans);
+  --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
+
+  --qw-body-bg: #ffffff;
+  --qw-body-image: none;
+  --qw-body-size: auto;
+  --qw-selection: rgba(37, 99, 235, 0.14);
+  --qw-scroll-thumb: #d4d4d8;
+  color-scheme: light;
+}
+
+/* ── Blueprint — technical drawing ─────────────────────────── */
+html[data-theme="blueprint"] {
+  --color-paper: #0d2137;
+  --color-paper-2: #102842;
+  --color-paper-3: #14304d;
+
+  --color-ink: #d3e6f7;
+  --color-ink-2: #8fb4d6;
+  --color-ink-3: #5f89ac;
+  --color-ink-4: #3f6183;
+
+  --color-line: rgba(170, 205, 240, 0.30);
+  --color-line-soft: rgba(170, 205, 240, 0.12);
+
+  --color-vermillion: #ff6b6b;
+  --color-ochre: #ffd166;
+
+  --font-serif: var(--qw-sans);
+  --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
+
+  --qw-body-bg: #0b1d30;
+  /* fine blueprint grid */
+  --qw-body-image:
+    linear-gradient(rgba(170, 205, 240, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(170, 205, 240, 0.08) 1px, transparent 1px);
+  --qw-body-size: 24px 24px;
+  --qw-selection: rgba(170, 205, 240, 0.22);
+  --qw-scroll-thumb: #2a4a6a;
+  color-scheme: dark;
+}
+
+/* ── Base element styling driven by the tokens above ───────── */
+
+html {
+  background: var(--qw-body-bg);
+}
+
+body {
+  background-color: var(--qw-body-bg);
+  background-image: var(--qw-body-image);
+  background-size: var(--qw-body-size);
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* tabular figures for every numeric readout */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--qw-scroll-thumb) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--qw-scroll-thumb); border-radius: 4px; }
+
+::selection {
+  background: var(--qw-selection);
+  color: var(--color-ink);
+}
+
+@keyframes qw-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes qw-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes qw-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+@keyframes qw-sweep {
+  from { stroke-dashoffset: var(--qw-dash, 0); }
+}
