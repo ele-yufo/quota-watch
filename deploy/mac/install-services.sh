@@ -59,10 +59,18 @@ kill_port() {
 }
 
 install_agent() {
-  local label="$1" tmpl="$2"
-  local plist="$LA_DIR/$label.plist"
+  local label="$1" tmpl="$2" port="${3:-}"
+  local plist="$LA_DIR/$label.plist" i
   render "$tmpl" > "$plist"
+  # bootout is asynchronous — bootstrapping again before teardown finishes
+  # fails with "5: Input/output error". Wait until the label is really gone.
   launchctl bootout "$DOMAIN/$label" 2>/dev/null || true
+  for i in $(seq 1 20); do
+    launchctl print "$DOMAIN/$label" >/dev/null 2>&1 || break
+    sleep 0.3
+  done
+  # Now free the port from any leftover manual process (agent is gone).
+  [ -n "$port" ] && kill_port "$port"
   launchctl bootstrap "$DOMAIN" "$plist"
   launchctl enable "$DOMAIN/$label"
   echo "✓ loaded $label"
@@ -72,15 +80,10 @@ echo "▸ repo:  $REPO"
 echo "▸ node:  $NODE_BIN"
 
 # ── daemon (:3737) ───────────────────────────────────────────────────────
-launchctl bootout "$DOMAIN/io.quotawatch.daemon" 2>/dev/null || true
-pkill -f 'dist/daemon-worker.js' 2>/dev/null || true
-sleep 1
-install_agent io.quotawatch.daemon "$TMPL_DIR/io.quotawatch.daemon.plist.tmpl"
+install_agent io.quotawatch.daemon "$TMPL_DIR/io.quotawatch.daemon.plist.tmpl" 3737
 
 # ── web (:3000) ──────────────────────────────────────────────────────────
-launchctl bootout "$DOMAIN/io.quotawatch.web" 2>/dev/null || true
-kill_port 3000
-install_agent io.quotawatch.web "$TMPL_DIR/io.quotawatch.web.plist.tmpl"
+install_agent io.quotawatch.web "$TMPL_DIR/io.quotawatch.web.plist.tmpl" 3000
 
 # ── frpc (only if configured) ────────────────────────────────────────────
 if [ -f "$DATA_DIR/frpc.toml" ]; then
