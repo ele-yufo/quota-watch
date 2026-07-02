@@ -9,6 +9,7 @@ export async function POST() {
   try {
     const res = await fetch(`http://127.0.0.1:${config.api.port}/poll`, {
       method: 'POST',
+      headers: config.api.token ? { Authorization: `Bearer ${config.api.token}` } : undefined,
       // a full poll fans out to every provider — allow slow upstreams
       signal: AbortSignal.timeout(30_000),
     });

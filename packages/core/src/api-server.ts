@@ -9,9 +9,12 @@
  *   GET  /quota            latest snapshot per provider×window (kind-sorted)
  *   POST /poll[?provider=] force an immediate poll (all or one provider)
  *
- * Auth: loopback clients are always allowed. Non-loopback clients must send
- * `Authorization: Bearer <api.token>`; binding beyond loopback without a
- * token refuses remote requests outright.
+ * Auth: when an api.token is set, EVERY request must send
+ * `Authorization: Bearer <api.token>` — loopback included. A reverse tunnel
+ * (frp, Cloudflare, …) connects to the daemon from 127.0.0.1, so a loopback
+ * bypass would silently expose the whole public internet unauthenticated.
+ * When no token is set (loopback-only deployment, host stays 127.0.0.1),
+ * local clients are allowed and everything else is refused.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { QuotaDB } from "./db.js";
@@ -139,10 +142,16 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
   }
 
   function authorize(req: IncomingMessage): boolean {
-    if (isLoopbackAddress(req.socket.remoteAddress)) return true;
-    if (!token) return false; // never expose beyond loopback without a token
-    const header = req.headers.authorization ?? "";
-    return header === `Bearer ${token}`;
+    // A token gates EVERY request — do not trust loopback here. Behind an frp
+    // tunnel the daemon sees all traffic as coming from 127.0.0.1, so a
+    // loopback exemption would let the public internet through unauthenticated.
+    // Local tools (web dashboard, CLI) send the token explicitly.
+    if (token) {
+      const header = req.headers.authorization ?? "";
+      return header === `Bearer ${token}`;
+    }
+    // No token configured → loopback-only deployment; allow local, refuse rest.
+    return isLoopbackAddress(req.socket.remoteAddress);
   }
 
   return new Promise((resolve, reject) => {

@@ -9,6 +9,7 @@ export async function GET() {
   const config = loadAppConfig();
   try {
     const res = await fetch(`http://127.0.0.1:${config.api.port}/health`, {
+      headers: config.api.token ? { Authorization: `Bearer ${config.api.token}` } : undefined,
       signal: AbortSignal.timeout(2000),
       cache: 'no-store',
     });

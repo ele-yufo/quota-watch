@@ -15,9 +15,10 @@ function lanAddresses(): string[] {
   return result;
 }
 
-async function daemonApiReachable(port: number): Promise<boolean> {
+async function daemonApiReachable(port: number, token: string | null): Promise<boolean> {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(2000),
     });
     return res.ok;
@@ -40,6 +41,12 @@ interface ConnectOptions {
   qr?: boolean;
   /** override the host encoded into the QR / shown for pairing (e.g. a public IP/domain) */
   host?: string;
+  /**
+   * override the port encoded into the QR / shown for pairing. Needed when a
+   * tunnel (frp remotePort, Cloudflare, etc.) exposes the daemon on a different
+   * public port than the local API port. Defaults to the local API port.
+   */
+  port?: string;
 }
 
 async function runConnect(options: ConnectOptions): Promise<void> {
@@ -48,7 +55,7 @@ async function runConnect(options: ConnectOptions): Promise<void> {
 
   console.log(chalk.bold('\nquota-watch device pairing\n'));
 
-  const running = await daemonApiReachable(port);
+  const running = await daemonApiReachable(port, token);
   if (!running) {
     console.log(chalk.yellow('⚠ Daemon API is not reachable on this machine.'));
     console.log(chalk.dim('  Start it first: quota-watch daemon start --lan\n'));
@@ -79,10 +86,18 @@ async function runConnect(options: ConnectOptions): Promise<void> {
     return;
   }
 
+  // The phone dials pairPort — which differs from the local API port when a
+  // tunnel exposes the daemon on another public port (e.g. an frp remotePort).
+  const pairPort = options.port ? Number(options.port) : port;
+  if (!Number.isFinite(pairPort) || pairPort <= 0) {
+    console.log(chalk.yellow(`⚠ Invalid --port "${options.port}".`));
+    return;
+  }
+
   const isPublic = Boolean(options.host) && !isPrivateHost(options.host!);
 
   if (options.qr) {
-    const url = pairingURL(pairHost, port, token);
+    const url = pairingURL(pairHost, pairPort, token);
     const qr = await QRCode.toString(url, { type: 'terminal', small: true });
     console.log('Scan this in the iOS app (tap "扫码配对"):\n');
     console.log(qr);
@@ -91,7 +106,7 @@ async function runConnect(options: ConnectOptions): Promise<void> {
 
   console.log('Or enter manually in the iOS app:');
   console.log(`  ${chalk.bold('Host')}   ${pairHost}`);
-  console.log(`  ${chalk.bold('Port')}   ${port}`);
+  console.log(`  ${chalk.bold('Port')}   ${pairPort}`);
   console.log(`  ${chalk.bold('Token')}  ${token}`);
   if (lan.length > 1 && !options.host) {
     console.log(
@@ -113,7 +128,7 @@ async function runConnect(options: ConnectOptions): Promise<void> {
   }
 
   console.log(chalk.dim('\n  Both devices must reach this host:port. Verify from the phone browser:'));
-  console.log(chalk.dim(`  http://${pairHost}:${port}/health  (send Authorization: Bearer <token>)\n`));
+  console.log(chalk.dim(`  http://${pairHost}:${pairPort}/health  (send Authorization: Bearer <token>)\n`));
 }
 
 /** RFC1918 private / loopback / .local — "safe" cleartext hosts. */
@@ -135,6 +150,7 @@ export function registerConnectCommand(program: Command): void {
     .description('Show host/port/token (and optional QR) for pairing the iOS app')
     .option('--qr', 'print a scannable QR code for pairing')
     .option('--host <address>', 'host to encode for pairing (public IP/domain); defaults to LAN IP')
+    .option('--port <port>', 'port to encode for pairing (e.g. an frp remote port); defaults to the local API port')
     .action(async (options: ConnectOptions) => {
       await runConnect(options);
     });
