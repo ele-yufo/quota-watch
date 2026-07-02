@@ -19,3 +19,5 @@ DerivedData/
 docs/providers/
 # local device-build helper (contains personal Apple team)
 ios/run-on-device.sh
+# macOS menu-bar app bundle (built by mac/build-app.sh)
+mac/QuotaWatch.app/

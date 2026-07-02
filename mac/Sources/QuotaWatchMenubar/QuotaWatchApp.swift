@@ -5,8 +5,9 @@ struct QuotaWatchApp: App {
     @StateObject private var store = QuotaStore()
 
     init() {
-        // No dock icon — menu-bar-only app
-        NSApp.setActivationPolicy(.accessory)
+        // No dock icon — menu-bar-only app. Use NSApplication.shared (not the
+        // NSApp global, which is still nil this early in App init).
+        NSApplication.shared.setActivationPolicy(.accessory)
         Notifier.requestPermission()
     }
 
