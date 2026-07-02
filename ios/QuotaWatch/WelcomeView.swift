@@ -3,6 +3,7 @@ import SwiftUI
 /// First-run welcome — dark instrument aesthetic, brand wordmark, routes into
 /// the pairing flow. Reachable inside the main NavigationStack.
 struct WelcomeView: View {
+    @Environment(AppModel.self) private var model
     @State private var appear = false
 
     var body: some View {
@@ -55,6 +56,20 @@ struct WelcomeView: View {
                         .foregroundStyle(Color.black)
                 }
                 .padding(.horizontal, 22)
+
+                Button {
+                    withAnimation(.snappy) { model.enterDemo() }
+                } label: {
+                    Text("先看示例数据")
+                        .font(.system(size: 15, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Theme.hairline))
+                        .foregroundStyle(Theme.ink2)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 10)
 
                 Text("在 Mac 上运行 quota-watch connect --qr，扫码即可")
                     .font(.qwLabel(11))

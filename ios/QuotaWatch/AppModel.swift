@@ -18,6 +18,12 @@ final class AppModel {
         didSet { KeychainHelper.save(token: token.isEmpty ? nil : token) }
     }
 
+    /// Demo mode — shows built-in sample data with no daemon. Lets users preview
+    /// before pairing, and lets App Store review see the app without a Mac.
+    var demoMode: Bool {
+        didSet { UserDefaults.standard.set(demoMode, forKey: "qw.demo") }
+    }
+
     // ── Live state ──────────────────────────────────────────────────────
     var providers: [QuotaProvider] = []
     var lastUpdated: Date?
@@ -38,10 +44,28 @@ final class AppModel {
         let storedPort = defaults.integer(forKey: "qw.port")
         self.port = storedPort == 0 ? 3737 : storedPort
         self.token = KeychainHelper.loadToken() ?? ""
+        self.demoMode = defaults.bool(forKey: "qw.demo")
     }
 
     var isConfigured: Bool {
-        !host.trimmingCharacters(in: .whitespaces).isEmpty
+        demoMode || !host.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Turn demo mode on (and load sample data immediately).
+    @MainActor
+    func enterDemo() {
+        demoMode = true
+        providers = DemoData.providers()
+        lastUpdated = Date()
+        loadError = nil
+        initialLoadFailed = false
+    }
+
+    /// Leave demo mode and clear the sample data.
+    func exitDemo() {
+        demoMode = false
+        providers = []
+        lastUpdated = nil
     }
 
     var client: APIClient {
@@ -81,8 +105,10 @@ final class AppModel {
         dismissedAlertSignature = alertSignature
     }
 
-    /// Apply a scanned pairing payload to the connection settings.
+    /// Apply a scanned pairing payload to the connection settings. Leaves demo
+    /// mode so real data takes over.
     func applyPairing(_ payload: PairingPayload) {
+        demoMode = false
         host = payload.host
         port = payload.port
         token = payload.token ?? ""
@@ -91,8 +117,16 @@ final class AppModel {
     // ── Data loading ────────────────────────────────────────────────────
 
     /// Fetch quota once; keeps prior data on failure and records the error.
+    /// In demo mode it just refreshes the built-in sample data.
     @MainActor
     func refresh() async {
+        if demoMode {
+            providers = DemoData.providers()
+            lastUpdated = Date()
+            loadError = nil
+            initialLoadFailed = false
+            return
+        }
         guard isConfigured, !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }

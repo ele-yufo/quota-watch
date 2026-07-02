@@ -20,6 +20,21 @@ struct SettingsView: View {
         @Bindable var model = model
 
         Form {
+            if model.demoMode {
+                Section {
+                    Label {
+                        Text("当前显示的是示例数据。配对你的 Mac 后即可看到真实配额。")
+                            .font(.footnote)
+                    } icon: {
+                        Image(systemName: "wand.and.stars").foregroundStyle(UsageLevel.warn.color)
+                    }
+                    Button("退出示例模式", role: .destructive) {
+                        model.exitDemo()
+                    }
+                } header: {
+                    Text("示例模式")
+                }
+            }
             connectionStatusSection
             pairingSection(model: $model)
             manualSection(model: $model)
