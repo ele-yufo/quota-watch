@@ -21,3 +21,7 @@ docs/providers/
 ios/run-on-device.sh
 # macOS menu-bar app bundle (built by mac/build-app.sh)
 mac/QuotaWatch.app/
+
+# frp client config may contain the frps token — never commit the real one
+frpc.toml
+**/frpc.toml

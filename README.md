@@ -98,6 +98,21 @@ open http://localhost:3000
 | `quota-watch daemon start [--lan]` | Background polling + API (`--lan` binds `0.0.0.0` with token auth, for iOS) |
 | `quota-watch connect [--qr] [--host <addr>]` | Pair the iOS app (QR / manual; `--host` for a public address) |
 
+## Run at login & public access (macOS)
+
+Register the daemon, web dashboard and an optional [frp](https://github.com/fatedier/frp)
+tunnel as launchd agents so they start at login and restart on crash:
+
+```bash
+./deploy/mac/install-services.sh            # daemon (:3737) + web (:3000)
+# public access via your own cloud frps server:
+cp deploy/mac/frpc.toml.example ~/.quota-watch/frpc.toml   # fill server + token
+./deploy/mac/install-services.sh            # now also installs the frpc tunnel
+```
+
+See [`deploy/mac/README.md`](deploy/mac/README.md) for the full setup, security
+notes, and how to pair the iOS app over the public internet.
+
 ## Supported providers
 
 | Provider | Windows | Credentials |

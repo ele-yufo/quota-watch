@@ -1,0 +1,42 @@
+# quota-watch — frpc client config (frp v0.52+, TOML)
+#
+# Proxies the local daemon API (and optionally the web dashboard) to your cloud
+# frps server, so the iOS app can pair / read quota over the public internet.
+#
+# SETUP
+#   1. Copy this file to ~/.quota-watch/frpc.toml
+#   2. Fill in serverAddr / serverPort / auth.token to match your frps server
+#   3. chmod 600 ~/.quota-watch/frpc.toml   (it holds a secret)
+#   4. Re-run deploy/mac/install-services.sh  (installs the frpc launchd agent)
+#
+# This file is NOT committed — the real ~/.quota-watch/frpc.toml contains your
+# frps token. Only this .example placeholder lives in git.
+
+serverAddr = "YOUR_CLOUD_SERVER_IP_OR_DOMAIN"
+serverPort = 7000                 # must match frps.toml  bindPort
+
+auth.method = "token"
+auth.token  = "YOUR_FRPS_TOKEN"   # must match frps.toml  auth.token
+
+# frpc <-> frps transport is TLS-encrypted by default in frp 0.52+
+# (transport.tls.enable = true). The public leg (phone -> frps remotePort) is
+# still plain HTTP — the daemon's Bearer token guards it, but prefer a domain
+# with TLS termination if you want the token encrypted end to end.
+
+# ── daemon API : iOS pairing + quota reads (REQUIRED) ─────────────────────
+[[proxies]]
+name       = "quota-daemon"
+type       = "tcp"
+localIP    = "127.0.0.1"
+localPort  = 3737
+remotePort = 3737                 # phone dials  http://YOUR_SERVER:3737
+
+# ── web dashboard (OPTIONAL — delete this block to keep the web local) ────
+# The web dashboard has NO auth; exposing it makes your quota view public to
+# anyone who hits this port. Remove this block if you only want iOS pairing.
+[[proxies]]
+name       = "quota-web"
+type       = "tcp"
+localIP    = "127.0.0.1"
+localPort  = 3000
+remotePort = 3000                 # browse  http://YOUR_SERVER:3000
