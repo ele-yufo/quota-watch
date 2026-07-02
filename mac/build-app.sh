@@ -48,8 +48,15 @@ codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
 echo "✓ built $(pwd)/$APP"
 if [ "${1:-}" = "--run" ]; then
+  # Kill any running instance and WAIT for it to actually exit. `open` matches
+  # by bundle id: if an old instance is still alive it just re-activates that
+  # stale process instead of launching the binary we just built — so a plain
+  # `sleep 1` silently ships the old code. Poll until the process is gone.
   pkill -f "$BIN_NAME" 2>/dev/null || true
-  sleep 1
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    pgrep -f "$BIN_NAME" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
   open "$APP"
   echo "✓ launched — look for the quota-watch item in your menu bar (top-right)"
 fi
