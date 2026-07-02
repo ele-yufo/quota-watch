@@ -93,12 +93,15 @@ class QuotaStore: ObservableObject {
 
     func refresh() {
         let items = readLatestSnapshots()
-        let providers = readAllProviders()
 
-        providerGroups = Self.buildGroups(providers: providers, items: items)
+        // Build the popover's provider groups from the SAME items that power the
+        // menu-bar label — so the two can never disagree (an earlier bug read
+        // providers via a second connection that came back empty under WAL,
+        // leaving the popover blank while the label showed data).
+        providerGroups = Self.buildGroups(from: items)
         worstItem = items.min(by: { $0.remainingPct < $1.remainingPct })
         lastUpdated = Date()
-        errorMessage = providers.isEmpty && items.isEmpty ? errorMessage : nil
+        if !items.isEmpty { errorMessage = nil }
 
         // Send a local notification for anything critically low on quota.
         for item in items where item.remainingPct < 10 {
@@ -117,19 +120,29 @@ class QuotaStore: ObservableObject {
         }
     }
 
-    /// Combine every known provider with its latest windows, sorted by kind rank
-    /// then window name. Providers keep appearing even with zero windows so the
-    /// UI can render an "等待采集" placeholder for them.
-    private static func buildGroups(providers: [ProviderInfo], items: [QuotaItem]) -> [ProviderGroup] {
-        let itemsByProvider = Dictionary(grouping: items, by: { $0.providerId })
-        return providers.map { info in
-            let sorted = (itemsByProvider[info.id] ?? []).sorted { lhs, rhs in
+    /// Group the latest windows by provider, preserving first-seen order (the
+    /// query already sorts by display name), each provider's windows sorted by
+    /// kind rank then window name.
+    private static func buildGroups(from items: [QuotaItem]) -> [ProviderGroup] {
+        var order: [String] = []
+        var info: [String: ProviderInfo] = [:]
+        var byProvider: [String: [QuotaItem]] = [:]
+        for item in items {
+            if info[item.providerId] == nil {
+                order.append(item.providerId)
+                info[item.providerId] = ProviderInfo(
+                    id: item.providerId, displayName: item.displayName, providerType: item.providerType)
+            }
+            byProvider[item.providerId, default: []].append(item)
+        }
+        return order.map { pid in
+            let sorted = (byProvider[pid] ?? []).sorted { lhs, rhs in
                 let lhsRank = WindowKind.rank(lhs.windowKind)
                 let rhsRank = WindowKind.rank(rhs.windowKind)
                 if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return lhs.windowName < rhs.windowName
             }
-            return ProviderGroup(info: info, items: sorted)
+            return ProviderGroup(info: info[pid]!, items: sorted)
         }
     }
 
@@ -140,11 +153,18 @@ class QuotaStore: ObservableObject {
             errorMessage = "Database not found at \(dbPath)"
             return nil
         }
+        // Open read-write: a WAL database read from a separate read-only
+        // connection can miss data written to the WAL. We only ever SELECT; WAL
+        // permits concurrent connections, so this is safe alongside the daemon.
         var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            errorMessage = "Failed to open database"
+        if sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) != SQLITE_OK {
             if let db { sqlite3_close(db) }
-            return nil
+            db = nil
+            guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+                errorMessage = "Failed to open database"
+                if let db { sqlite3_close(db) }
+                return nil
+            }
         }
         return db
     }
@@ -205,31 +225,6 @@ class QuotaStore: ObservableObject {
         }
 
         return items
-    }
-
-    /// Read every known provider, including ones with no snapshots yet.
-    private func readAllProviders() -> [ProviderInfo] {
-        guard let db = openDatabase() else { return [] }
-        defer { sqlite3_close(db) }
-
-        let sql = "SELECT id, display_name, provider FROM providers ORDER BY display_name COLLATE NOCASE"
-
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            errorMessage = "SQL prepare failed: \(String(cString: sqlite3_errmsg(db)))"
-            return []
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        var providers: [ProviderInfo] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let id = String(cString: sqlite3_column_text(stmt, 0))
-            let displayName = String(cString: sqlite3_column_text(stmt, 1))
-            let providerType = String(cString: sqlite3_column_text(stmt, 2))
-            providers.append(ProviderInfo(id: id, displayName: displayName, providerType: providerType))
-        }
-
-        return providers
     }
 
     // MARK: - Formatting helpers
