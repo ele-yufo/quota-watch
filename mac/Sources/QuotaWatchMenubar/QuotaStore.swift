@@ -13,6 +13,23 @@ class QuotaStore: ObservableObject {
     private var timer: Timer?
     private var dbPath: String
 
+    /// Remaining-% at which a window first warns — early enough that the user
+    /// can still act (switch provider, slow down) instead of being told after
+    /// it's already exhausted.
+    private let alertThresholdPct: Double = 20
+
+    /// Windows that have already fired their single alert for the current
+    /// period. An id is cleared once its window recovers above the threshold
+    /// (i.e. it reset), re-arming it for the next period. This is what makes
+    /// alerts edge-triggered / once — never the old per-refresh spam.
+    private var alertedWindowIds: Set<String> = []
+
+    /// On the very first refresh we adopt whatever is already low as
+    /// "already alerted", so launching (e.g. at login) never fires a burst of
+    /// notifications for pre-existing low state — only in-session threshold
+    /// crossings notify. The menu-bar color already surfaces the standing state.
+    private var didSeedAlerts = false
+
     // MARK: - Models
 
     struct QuotaItem: Identifiable {
@@ -103,13 +120,51 @@ class QuotaStore: ObservableObject {
         lastUpdated = Date()
         if !items.isEmpty { errorMessage = nil }
 
-        // Send a local notification for anything critically low on quota.
-        for item in items where item.remainingPct < 10 {
-            Notifier.send(
-                title: "⚠️ \(item.displayName) quota low",
-                body: "\(item.windowName): \(Self.formatUsedPct(remainingPct: item.remainingPct)) used (\(Self.formatValue(item.used))/\(Self.formatValue(item.total)) \(item.unit))"
-            )
+        notifyLowQuota(items)
+    }
+
+    /// Edge-triggered, once-per-period low-quota notifications. Fires a single
+    /// actionable alert when a window *first* drops below the threshold, and
+    /// re-arms only after it recovers (resets). No repeated spam, and it warns
+    /// while the user can still switch providers or pace usage — an alert at
+    /// exhaustion is useless because it can't be reset, only waited out.
+    private func notifyLowQuota(_ items: [QuotaItem]) {
+        let lowNow = Set(items.filter { $0.remainingPct < alertThresholdPct }.map(\.id))
+
+        // First refresh: adopt the current low set as already-alerted so launch
+        // never fires a burst. Only crossings from here on notify.
+        guard didSeedAlerts else {
+            alertedWindowIds = lowNow
+            didSeedAlerts = true
+            return
         }
+
+        for item in items {
+            if item.remainingPct < alertThresholdPct {
+                guard !alertedWindowIds.contains(item.id) else { continue }
+                alertedWindowIds.insert(item.id)
+
+                let remaining = String(format: "%.0f%%", max(0, item.remainingPct))
+                var body = "\(Self.windowLabel(item)) 仅剩 \(remaining)，考虑切到其他渠道或放慢节奏"
+                if let reset = Self.formatResetCountdown(item.resetAt) {
+                    body += "；约 \(reset) 后重置"
+                }
+                Notifier.send(title: "\(item.displayName) 配额快用完了", body: body)
+            } else {
+                // Recovered above the threshold — re-arm for the next period.
+                alertedWindowIds.remove(item.id)
+            }
+        }
+    }
+
+    /// Human window label for notifications — strip the redundant "(5h)" tail
+    /// the window name often re-embeds (the alert doesn't have the chip).
+    static func windowLabel(_ item: QuotaItem) -> String {
+        if let r = item.windowName.range(
+            of: #"\s*\([^)]*\)\s*$"#, options: .regularExpression) {
+            return String(item.windowName[..<r.lowerBound])
+        }
+        return item.windowName
     }
 
     private func startAutoRefresh() {

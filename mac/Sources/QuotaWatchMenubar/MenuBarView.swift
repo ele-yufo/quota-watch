@@ -152,15 +152,9 @@ private struct ProviderSection: View {
     let group: QuotaStore.ProviderGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(group.info.displayName)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text(group.info.providerType)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            Text(group.info.displayName)
+                .font(.subheadline.weight(.semibold))
 
             if group.items.isEmpty {
                 Text("等待采集")
@@ -168,16 +162,18 @@ private struct ProviderSection: View {
                     .foregroundStyle(.tertiary)
                     .padding(.vertical, 2)
             } else {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                     ForEach(group.items) { item in
                         QuotaWindowRow(item: item)
                     }
                 }
             }
         }
-        .padding(10)
-        .background(Color.gray.opacity(0.07))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.primary.opacity(0.055))
+        )
     }
 }
 
@@ -190,15 +186,32 @@ private struct QuotaWindowRow: View {
         .of(remainingPct: item.remainingPct)
     }
 
+    /// Window names often re-embed the same tag the chip already shows
+    /// ("session (5h)", "Claude+GPT (5h)"). Drop the trailing "(…)".
+    private var cleanName: String {
+        if let r = item.windowName.range(
+            of: #"\s*\([^)]*\)\s*$"#, options: .regularExpression) {
+            return String(item.windowName[..<r.lowerBound])
+        }
+        return item.windowName
+    }
+
+    /// The "used / total unit" line is only meaningful for real quantities
+    /// (tokens, credits). For percent windows it just restates the big number.
+    private var showsRawCounts: Bool {
+        item.unit.lowercased() != "percent" && item.total > 0
+    }
+
+    private var resetLabel: String? { QuotaStore.formatResetCountdown(item.resetAt) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
                 KindChip(kind: item.windowKind)
-                Text(item.windowName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(cleanName)
+                    .font(.callout)
                     .lineLimit(1)
-                Spacer()
+                Spacer(minLength: 8)
                 Text(QuotaStore.formatUsedPct(remainingPct: item.remainingPct))
                     .font(.callout.monospacedDigit().weight(.semibold))
                     .foregroundStyle(severity.textColor)
@@ -206,17 +219,21 @@ private struct QuotaWindowRow: View {
 
             ProgressBar(fraction: CGFloat(item.usedPct / 100), color: severity.barColor)
 
-            HStack {
-                Text("\(QuotaStore.formatValue(item.used)) / \(QuotaStore.formatValue(item.total)) \(item.unit)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-
-                Spacer()
-
-                if let resetLabel = QuotaStore.formatResetCountdown(item.resetAt) {
-                    Label(resetLabel, systemImage: "clock")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+            // Secondary line — only rendered when it carries real information:
+            // raw token/credit counts, and/or the reset countdown.
+            if showsRawCounts || resetLabel != nil {
+                HStack {
+                    if showsRawCounts {
+                        Text("\(QuotaStore.formatValue(item.used)) / \(QuotaStore.formatValue(item.total)) \(item.unit)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    if let resetLabel {
+                        Label(resetLabel, systemImage: "clock")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
         }
