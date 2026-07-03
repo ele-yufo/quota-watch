@@ -103,6 +103,14 @@ app 检测到非内网地址时会警告「明文 HTTP 会暴露 Token」，**�
 的缓存快照；每 ~20 分钟刷新一次（WidgetKit 预算内），app 每次刷新时也会主动
 `reloadAllTimelines`。视觉复用 app 的 `RingGauge` / `ProviderBadge` / 配色。
 
+**改小组件布局前必跑**（离线核对是否裁切，真机字体比系统回退高约 20%，肉眼估不准）：
+
+```bash
+ios/tools/preview-widgets.sh   # 注册真字体，按精确 widget 尺寸离屏渲染 + 画红框边界
+```
+
+任何内容触到/越过红框 = 真机上会被裁。这是小组件布局改动的强制自查步骤。
+
 > ⚠️ **需要付费 Apple Developer 账号**：小组件靠 **App Group**
 > (`group.io.quotawatch.app`) 在 app 与 extension 间共享主机/端口/Token + 快照，
 > App Group 能力需付费账号才能签名。生成工程后在 Xcode 的
