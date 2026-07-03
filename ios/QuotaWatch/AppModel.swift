@@ -90,7 +90,9 @@ final class AppModel {
         lastUpdated = Date()
         loadError = nil
         initialLoadFailed = false
-        persistForWidget()
+        // Deliberately NOT persisted to the widget cache: demo is an in-app
+        // preview only. Writing it would make the widget show fake data as if
+        // real (and survive into a later failed real fetch).
     }
 
     /// Leave demo mode and clear the sample data.
@@ -180,8 +182,7 @@ final class AppModel {
             lastUpdated = Date()
             loadError = nil
             initialLoadFailed = false
-            persistForWidget()
-            return
+            return  // demo is in-app only — never written to the widget cache
         }
         guard isConfigured, !isRefreshing else { return }
         isRefreshing = true

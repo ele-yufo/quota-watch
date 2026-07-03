@@ -90,9 +90,12 @@ enum QuotaFetcher {
             lastUpdated: nil, isStale: true, page: page, displayMode: mode)
     }
 
-    /// Fast, network-free entry from the cache (or demo when nothing cached) —
-    /// used for the placeholder/snapshot so a freshly-added widget renders
-    /// instantly instead of a white box while a network fetch blocks.
+    /// Fast, network-free entry from the cache — drives the LIVE render (snapshot
+    /// + timeline) so a freshly-added widget paints instantly instead of a white
+    /// box. When there is no cache it returns an EMPTY entry (→ the "未配对 · 打开
+    /// App" state), never fabricated demo data: showing demo on the real widget
+    /// would be indistinguishable from live quota. (Demo is only for the gallery
+    /// placeholder, below.)
     static func cachedEntry(selecting providerId: String?) -> QuotaEntry {
         let page = SharedStore.widgetPage
         let mode = SharedStore.displayMode
@@ -102,28 +105,44 @@ enum QuotaFetcher {
                 lastUpdated: cached.date, isStale: false, page: page, displayMode: mode)
         }
         return QuotaEntry(
-            date: Date(), providers: DemoData.providers(), selectedProviderId: providerId,
+            date: Date(), providers: [], selectedProviderId: providerId,
             lastUpdated: nil, isStale: true, page: page, displayMode: mode)
     }
 
-    static func timeline(selecting providerId: String?) async -> Timeline<QuotaEntry> {
-        let entry = await entry(selecting: providerId)
-        return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(refreshInterval)))
+    /// A timeline that renders INSTANTLY from cache (never awaits the network,
+    /// so a freshly-added widget can never sit white) and kicks a background
+    /// refresh so the next cycle has fresh data.
+    static func instantTimeline(selecting providerId: String?) -> Timeline<QuotaEntry> {
+        Timeline(entries: [cachedEntry(selecting: providerId)],
+                 policy: .after(Date().addingTimeInterval(refreshInterval)))
+    }
+
+    /// Fetch live quota and update the shared cache — best effort, no UI wait.
+    static func refreshCache() async {
+        let host = SharedStore.host
+        guard !host.isEmpty else { return }
+        let client = APIClient(
+            host: host, port: SharedStore.port,
+            token: SharedStore.token.isEmpty ? nil : SharedStore.token, timeout: 8)
+        if let providers = try? await client.quota() {
+            SharedStore.saveSnapshot(providers)
+        }
     }
 }
 
 /// Configurable single-window widget (small + accessory families).
 struct FeaturedProvider: AppIntentTimelineProvider {
+    // Gallery placeholder = representative demo (redacted by the system). The
+    // live render (snapshot/timeline) uses the real cache-or-empty.
     func placeholder(in context: Context) -> QuotaEntry { .placeholder }
 
-    // Snapshot must be instant (it drives the first paint) — read the cache, no
-    // network. The timeline then refreshes with live data.
     func snapshot(for configuration: SelectProviderIntent, in context: Context) async -> QuotaEntry {
         QuotaFetcher.cachedEntry(selecting: configuration.provider?.id)
     }
 
     func timeline(for configuration: SelectProviderIntent, in context: Context) async -> Timeline<QuotaEntry> {
-        await QuotaFetcher.timeline(selecting: configuration.provider?.id)
+        Task { await QuotaFetcher.refreshCache() }
+        return QuotaFetcher.instantTimeline(selecting: configuration.provider?.id)
     }
 }
 
@@ -131,12 +150,12 @@ struct FeaturedProvider: AppIntentTimelineProvider {
 struct OverviewProvider: TimelineProvider {
     func placeholder(in context: Context) -> QuotaEntry { .placeholder }
 
-    // Instant, cache-only snapshot so a freshly-added widget paints immediately.
     func getSnapshot(in context: Context, completion: @escaping (QuotaEntry) -> Void) {
         completion(QuotaFetcher.cachedEntry(selecting: nil))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuotaEntry>) -> Void) {
-        Task { completion(await QuotaFetcher.timeline(selecting: nil)) }
+        Task { await QuotaFetcher.refreshCache() }
+        completion(QuotaFetcher.instantTimeline(selecting: nil))
     }
 }

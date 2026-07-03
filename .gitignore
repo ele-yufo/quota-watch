@@ -29,3 +29,6 @@ frpc.toml
 ios/build/
 # iOS local signing override (team id + personal bundle id)
 ios/Local.xcconfig
+
+# Claude Code local workflow (review-gate hooks + settings) — machine-local
+.claude/
