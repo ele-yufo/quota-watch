@@ -18,8 +18,8 @@ struct FeaturedQuotaWidget: Widget {
         AppIntentConfiguration(kind: kind, intent: SelectProviderIntent.self, provider: FeaturedProvider()) { entry in
             FeaturedWidgetView(entry: entry)
         }
-        .configurationDisplayName("配额 · 单窗口")
-        .description("盯住最紧张的窗口，或长按指定一个渠道。")
+        .configurationDisplayName("配额 · 速览")
+        .description("最紧张的几个渠道一览；长按可只盯一个渠道。")
         .supportedFamilies([.systemSmall, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }

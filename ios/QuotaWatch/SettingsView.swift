@@ -5,12 +5,14 @@ import SwiftUI
 /// can actually get connected.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
 
     @State private var testState: TestState = .idle
     @State private var showScanner = false
     @State private var scannedTick = 0
     @State private var manualCode = ""
     @State private var claiming = false
+    @State private var paired = false
 
     private enum TestState: Equatable {
         case idle, testing
@@ -54,6 +56,10 @@ struct SettingsView: View {
                 handleScanned(payload)
             }
         }
+        .overlay(alignment: .top) {
+            if paired { pairedToast }
+        }
+        .animation(.snappy, value: paired)
         .sensoryFeedback(.success, trigger: scannedTick)
         .sensoryFeedback(trigger: testState) { _, new in
             switch new {
@@ -287,13 +293,13 @@ struct SettingsView: View {
                     testState = .failure(err)
                 } else {
                     scannedTick += 1
-                    await runTest()
+                    await finishPairing()
                 }
             } else {
                 model.applyPairing(payload)
                 scannedTick += 1
                 testState = .idle
-                await runTest()
+                await finishPairing()
             }
         }
     }
@@ -309,9 +315,36 @@ struct SettingsView: View {
             } else {
                 manualCode = ""
                 scannedTick += 1
-                await runTest()
+                await finishPairing()
             }
         }
+    }
+
+    /// After a successful pair: test the connection, show a clear success toast,
+    /// then pop back to the home screen — where the freshly-loaded quota is the
+    /// real confirmation (no more staying stranded on the settings page).
+    private func finishPairing() async {
+        await runTest()
+        if case .success = testState {
+            paired = true
+            try? await Task.sleep(for: .seconds(1.2))
+            dismiss()
+        }
+    }
+
+    private var pairedToast: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(UsageLevel.ok.color)
+            Text("配对成功 · 已连接")
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(UsageLevel.ok.color.opacity(0.4)))
+        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+        .padding(.top, 10)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
