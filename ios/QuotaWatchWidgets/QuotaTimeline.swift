@@ -20,6 +20,9 @@ struct QuotaEntry: TimelineEntry {
     /// True when the data came from the cache (daemon unreachable) rather than a
     /// fresh fetch — the views show a subtle "缓存" hint.
     let isStale: Bool
+    /// Paging index for the medium/large widgets (wraps in the view). Advanced by
+    /// the interactive NextPageIntent button.
+    var page: Int = 0
 
     /// The window a single-window widget features: the selected provider's
     /// tightest window, or the tightest across everything when none is pinned.
@@ -54,6 +57,7 @@ enum QuotaFetcher {
     static let refreshInterval: TimeInterval = 20 * 60
 
     static func entry(selecting providerId: String?) async -> QuotaEntry {
+        let page = SharedStore.widgetPage
         let host = SharedStore.host
         if !host.isEmpty {
             let client = APIClient(
@@ -63,18 +67,18 @@ enum QuotaFetcher {
                 SharedStore.saveSnapshot(providers)
                 return QuotaEntry(
                     date: Date(), providers: providers,
-                    selectedProviderId: providerId, lastUpdated: Date(), isStale: false)
+                    selectedProviderId: providerId, lastUpdated: Date(), isStale: false, page: page)
             }
         }
         // Daemon unreachable (wrong network, asleep Mac, not paired) → last cache.
         if let cached = SharedStore.loadSnapshot() {
             return QuotaEntry(
                 date: Date(), providers: cached.providers,
-                selectedProviderId: providerId, lastUpdated: cached.date, isStale: true)
+                selectedProviderId: providerId, lastUpdated: cached.date, isStale: true, page: page)
         }
         return QuotaEntry(
             date: Date(), providers: [],
-            selectedProviderId: providerId, lastUpdated: nil, isStale: true)
+            selectedProviderId: providerId, lastUpdated: nil, isStale: true, page: page)
     }
 
     static func timeline(selecting providerId: String?) async -> Timeline<QuotaEntry> {

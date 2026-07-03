@@ -17,6 +17,19 @@ enum SharedStore {
         static let token = "qw.token"
         static let snapshot = "qw.snapshot"       // JSON-encoded [QuotaProvider]
         static let snapshotAt = "qw.snapshotAt"   // epoch seconds of last good fetch
+        static let widgetPage = "qw.widgetPage"   // paging index for the widgets
+    }
+
+    // ── Widget paging (interactive "next page" button) ──────────────────
+
+    /// The widget's current page index (wraps in the view based on row count).
+    static var widgetPage: Int { defaults?.integer(forKey: K.widgetPage) ?? 0 }
+
+    /// Advance the page — called by the widget's NextPageIntent; WidgetKit then
+    /// reloads the timeline so the next slice renders.
+    static func advanceWidgetPage() {
+        guard let d = defaults else { return }
+        d.set(d.integer(forKey: K.widgetPage) + 1, forKey: K.widgetPage)
     }
 
     // ── Connection settings (app → widget) ──────────────────────────────

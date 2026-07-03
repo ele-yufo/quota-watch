@@ -24,16 +24,17 @@ struct FeaturedQuotaWidget: Widget {
     }
 }
 
-/// Medium home-screen widget: each provider's tightest window, worst first.
+/// Medium + large home-screen overview: every provider's tightest window, worst
+/// first, paginated — tap the ▶ to page through more than fit on one screen.
 struct OverviewQuotaWidget: Widget {
     let kind = "QuotaOverview"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: OverviewProvider()) { entry in
-            MediumWidgetView(entry: entry)
+            OverviewWidgetView(entry: entry)
         }
         .configurationDisplayName("配额 · 概览")
-        .description("多个渠道最紧张窗口一览。")
-        .supportedFamilies([.systemMedium])
+        .description("多渠道一览，按紧张度排序；点 ▶ 翻页看更多。")
+        .supportedFamilies([.systemMedium, .systemLarge])
     }
 }

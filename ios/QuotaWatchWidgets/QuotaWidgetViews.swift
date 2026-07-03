@@ -1,32 +1,36 @@
 import SwiftUI
 import WidgetKit
 
-// MARK: - Background
+// MARK: - Helpers
 
-/// Deep instrument-panel background for the home-screen widgets — a lighter
-/// gradient than the app's full guilloché canvas (cheaper to render, same feel).
+/// Deep instrument-panel background for the home-screen widgets.
 private struct WidgetBG: View {
     var body: some View {
         LinearGradient(colors: [Theme.bgTop, Theme.bgBottom], startPoint: .top, endPoint: .bottom)
     }
 }
 
-/// Strip the redundant "(5h)" tail a window name often repeats (the chip shows it).
+/// Strip the redundant "(5h)" tail a window name repeats (the chip shows it).
 private func cleanWindowName(_ name: String) -> String {
     guard let r = name.range(of: #"\s*\([^)]*\)\s*$"#, options: .regularExpression) else { return name }
     return String(name[..<r.lowerBound])
 }
 
-// MARK: - A single stat line (shared by small + medium)
+/// Slice `all` into pages of `perPage`, wrapping `page` so the next-page button
+/// cycles. Returns the current slice, the normalized page index, and page count.
+private func pagedSlice<T>(_ all: [T], page: Int, perPage: Int) -> (slice: [T], page: Int, total: Int) {
+    let total = max(1, Int(ceil(Double(all.count) / Double(perPage))))
+    let cur = ((page % total) + total) % total
+    return (Array(all.dropFirst(cur * perPage).prefix(perPage)), cur, total)
+}
 
-/// One row: a leading glyph (provider badge in fleet mode, window chip in
-/// pinned mode), a label, the used %, and a slim usage bar. Optionally a reset
-/// countdown trailing the label (medium).
+// MARK: - A single stat line (shared by small / medium / large)
+
+/// One row: a leading glyph (provider badge, or window chip when pinned), then a
+/// clean name line, then a bar + reset line — so long names never crowd the %.
 private struct StatRow: View {
     let item: RankedWindow
     var compact = false
-    /// true when every row is a window of ONE pinned provider (lead with the
-    /// window chip + window name); false for the multi-provider fleet view.
     var pinned = false
     var showReset = false
 
@@ -35,34 +39,38 @@ private struct StatRow: View {
     }
 
     var body: some View {
-        HStack(spacing: compact ? 7 : 9) {
-            if pinned {
-                Text(item.window.windowKind.label)
-                    .font(.qwLabel(compact ? 8.5 : 9.5))
-                    .foregroundStyle(Theme.ink2)
-                    .frame(width: compact ? 24 : 28)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.white.opacity(0.08)))
-            } else {
-                ProviderBadge(style: .of(item.provider.providerType), size: compact ? 20 : 24)
-            }
-
-            VStack(alignment: .leading, spacing: compact ? 3 : 4) {
+        HStack(spacing: compact ? 8 : 10) {
+            leading
+            VStack(alignment: .leading, spacing: compact ? 3 : 5) {
                 HStack(spacing: 5) {
                     Text(label)
-                        .font(.qwLabel(compact ? 10.5 : 12))
+                        .font(.qwLabel(compact ? 11 : 12.5))
                         .foregroundStyle(Theme.ink)
                         .lineLimit(1).minimumScaleFactor(0.85)
-                    if showReset, let reset = Formatting.resetCountdown(item.window.resetDate) {
-                        Text("↻\(reset)").font(.qwLabel(9)).foregroundStyle(Theme.ink3)
-                    }
-                    Spacer(minLength: 2)
+                    Spacer(minLength: 4)
                     Text("\(Int(item.window.usedPct.rounded()))%")
-                        .font(.qwNum(compact ? 11 : 13, .bold))
+                        .font(.qwNum(compact ? 11.5 : 13, .bold))
                         .foregroundStyle(item.level.color)
                 }
-                MiniBar(fraction: item.window.usedPct / 100, color: item.level.color)
+                HStack(spacing: 7) {
+                    MiniBar(fraction: item.window.usedPct / 100, color: item.level.color)
+                    if showReset, let reset = Formatting.resetCountdown(item.window.resetDate) {
+                        Text("↻\(reset)")
+                            .font(.qwLabel(9.5)).foregroundStyle(Theme.ink3).fixedSize()
+                    }
+                }
             }
+        }
+    }
+
+    @ViewBuilder private var leading: some View {
+        if pinned {
+            Text(item.window.windowKind.label)
+                .font(.qwLabel(compact ? 9 : 10)).foregroundStyle(Theme.ink2)
+                .frame(width: compact ? 26 : 30).padding(.vertical, 3)
+                .background(Capsule().fill(Color.white.opacity(0.08)))
+        } else {
+            ProviderBadge(style: .of(item.provider.providerType), size: compact ? 22 : 26)
         }
     }
 }
@@ -82,22 +90,33 @@ private struct MiniBar: View {
     }
 }
 
-/// Small wordmark / provider title used as a widget header.
-private struct WidgetHeader: View {
-    let title: String
-    let stale: Bool
+/// Wordmark header with an optional page indicator + interactive next-page button.
+private struct PagedHeader: View {
     let updated: Date?
-    var wordmark = false
+    let stale: Bool
+    let count: Int
+    let page: Int
+    let total: Int
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(wordmark ? .qwDisplay(14) : .qwLabel(13))
-                .foregroundStyle(Theme.ink).lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("quota").font(.qwDisplay(16)).foregroundStyle(Theme.ink)
+            Text("·").font(.qwDisplay(16)).foregroundStyle(UsageLevel.low.color)
+            Text("watch").font(.qwDisplayItalic(16)).foregroundStyle(Theme.ink)
             Spacer(minLength: 4)
             if let updated {
-                Text(stale ? "缓存" : Formatting.ago(updated))
-                    .font(.qwLabel(9)).foregroundStyle(Theme.ink3)
+                Text((stale ? "缓存 · " : "") + "\(count) 渠道 · " + Formatting.ago(updated))
+                    .font(.qwLabel(9)).foregroundStyle(Theme.ink3).lineLimit(1)
+            }
+            if total > 1 {
+                Text("\(page + 1)/\(total)").font(.qwLabel(9.5)).foregroundStyle(Theme.ink2)
+                Button(intent: NextPageIntent()) {
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.ink)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.white.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -119,12 +138,11 @@ struct FeaturedWidgetView: View {
     }
 }
 
-// MARK: - Small (mini dashboard)
+// MARK: - Small (mini dashboard — top 3)
 
 struct SmallWidgetView: View {
     let entry: QuotaEntry
 
-    /// Pinned → that provider's own windows; otherwise the fleet's tightest.
     private var pinnedProvider: QuotaProvider? {
         guard let sel = entry.selectedProviderId else { return nil }
         return entry.providers.first { $0.providerId == sel }
@@ -141,15 +159,19 @@ struct SmallWidgetView: View {
             if rows.isEmpty {
                 WidgetEmptyView()
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    WidgetHeader(
-                        title: pinnedProvider?.displayName ?? "quota·watch",
-                        stale: entry.isStale, updated: entry.lastUpdated,
-                        wordmark: pinnedProvider == nil)
-                    Rectangle().fill(Theme.hairline).frame(height: 1)
-                    ForEach(rows.prefix(3)) { row in
-                        StatRow(item: row, compact: true, pinned: pinnedProvider != nil)
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(pinnedProvider?.displayName ?? "quota·watch")
+                            .font(pinnedProvider == nil ? .qwDisplay(14) : .qwLabel(13))
+                            .foregroundStyle(Theme.ink).lineLimit(1)
+                        Spacer(minLength: 4)
+                        if let u = entry.lastUpdated {
+                            Text(entry.isStale ? "缓存" : Formatting.ago(u))
+                                .font(.qwLabel(8.5)).foregroundStyle(Theme.ink3)
+                        }
                     }
+                    Rectangle().fill(Theme.hairline).frame(height: 1)
+                    ForEach(rows.prefix(3)) { StatRow(item: $0, compact: true, pinned: pinnedProvider != nil) }
                     if rows.count > 3 {
                         Text("+\(rows.count - 3) 个渠道")
                             .font(.qwLabel(9)).foregroundStyle(Theme.ink3)
@@ -162,31 +184,24 @@ struct SmallWidgetView: View {
     }
 }
 
-// MARK: - Medium (fleet overview)
+// MARK: - Overview router (medium + large, both paginated)
 
-struct MediumWidgetView: View {
+struct OverviewWidgetView: View {
+    @Environment(\.widgetFamily) private var family
     let entry: QuotaEntry
 
     var body: some View {
+        let perPage = family == .systemLarge ? 7 : 4
         Group {
             if entry.overviewRows.isEmpty {
                 WidgetEmptyView()
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text("quota").font(.qwDisplay(16)).foregroundStyle(Theme.ink)
-                        Text("·").font(.qwDisplay(16)).foregroundStyle(UsageLevel.low.color)
-                        Text("watch").font(.qwDisplayItalic(16)).foregroundStyle(Theme.ink)
-                        Spacer()
-                        if let u = entry.lastUpdated {
-                            Text((entry.isStale ? "缓存 · " : "") + "\(entry.providers.count) 渠道 · " + Formatting.ago(u))
-                                .font(.qwLabel(9)).foregroundStyle(Theme.ink3)
-                        }
-                    }
+                let p = pagedSlice(entry.overviewRows, page: entry.page, perPage: perPage)
+                VStack(alignment: .leading, spacing: family == .systemLarge ? 11 : 8) {
+                    PagedHeader(updated: entry.lastUpdated, stale: entry.isStale,
+                                count: entry.providers.count, page: p.page, total: p.total)
                     Rectangle().fill(Theme.hairline).frame(height: 1)
-                    ForEach(entry.overviewRows.prefix(5)) { row in
-                        StatRow(item: row, showReset: true)
-                    }
+                    ForEach(p.slice) { StatRow(item: $0, showReset: true) }
                     Spacer(minLength: 0)
                 }
             }

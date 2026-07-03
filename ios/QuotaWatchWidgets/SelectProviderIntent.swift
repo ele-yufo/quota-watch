@@ -35,3 +35,14 @@ struct SelectProviderIntent: WidgetConfigurationIntent {
     @Parameter(title: "渠道（留空 = 自动盯最紧张）")
     var provider: ProviderEntity?
 }
+
+/// Interactive-widget button: page the medium/large widget to the next slice of
+/// providers. WidgetKit reloads the timeline after it runs, rendering the page.
+struct NextPageIntent: AppIntent {
+    static var title: LocalizedStringResource = "下一页"
+
+    func perform() async throws -> some IntentResult {
+        SharedStore.advanceWidgetPage()
+        return .result()
+    }
+}
