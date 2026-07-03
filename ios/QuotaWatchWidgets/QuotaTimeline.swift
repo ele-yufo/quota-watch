@@ -109,23 +109,31 @@ enum QuotaFetcher {
             lastUpdated: nil, isStale: true, page: page, displayMode: mode)
     }
 
-    /// A timeline that renders INSTANTLY from cache (never awaits the network,
-    /// so a freshly-added widget can never sit white) and kicks a background
-    /// refresh so the next cycle has fresh data.
-    static func instantTimeline(selecting providerId: String?) -> Timeline<QuotaEntry> {
-        Timeline(entries: [cachedEntry(selecting: providerId)],
-                 policy: .after(Date().addingTimeInterval(refreshInterval)))
-    }
-
     /// Fetch live quota and update the shared cache — best effort, no UI wait.
-    static func refreshCache() async {
+    /// Returns true if it stored a non-empty snapshot.
+    @discardableResult
+    static func refreshCache() async -> Bool {
         let host = SharedStore.host
-        guard !host.isEmpty else { return }
+        guard !host.isEmpty else { return false }
         let client = APIClient(
             host: host, port: SharedStore.port,
             token: SharedStore.token.isEmpty ? nil : SharedStore.token, timeout: 8)
-        if let providers = try? await client.quota() {
-            SharedStore.saveSnapshot(providers)
+        guard let providers = try? await client.quota() else { return false }
+        SharedStore.saveSnapshot(providers)
+        return !providers.isEmpty
+    }
+
+    /// Best-effort background refresh. When the render could only show an empty
+    /// state (`kind != nil` = it was empty) and the fetch lands real data, reload
+    /// that widget kind once — so a first-add shows live data within seconds, not
+    /// a full refresh cycle. The "was empty" gate means it can't loop on every
+    /// subsequent data change (a populated entry passes nil).
+    static func refreshInBackground(reloadKindIfWasEmpty kind: String?) {
+        Task {
+            let gotData = await refreshCache()
+            if gotData, let kind {
+                WidgetCenter.shared.reloadTimelines(ofKind: kind)
+            }
         }
     }
 }
@@ -141,8 +149,10 @@ struct FeaturedProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: SelectProviderIntent, in context: Context) async -> Timeline<QuotaEntry> {
-        Task { await QuotaFetcher.refreshCache() }
-        return QuotaFetcher.instantTimeline(selecting: configuration.provider?.id)
+        let entry = QuotaFetcher.cachedEntry(selecting: configuration.provider?.id)
+        QuotaFetcher.refreshInBackground(reloadKindIfWasEmpty: entry.providers.isEmpty ? "QuotaFeatured" : nil)
+        return Timeline(entries: [entry],
+                        policy: .after(Date().addingTimeInterval(QuotaFetcher.refreshInterval)))
     }
 }
 
@@ -155,7 +165,9 @@ struct OverviewProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuotaEntry>) -> Void) {
-        Task { await QuotaFetcher.refreshCache() }
-        completion(QuotaFetcher.instantTimeline(selecting: nil))
+        let entry = QuotaFetcher.cachedEntry(selecting: nil)
+        QuotaFetcher.refreshInBackground(reloadKindIfWasEmpty: entry.providers.isEmpty ? "QuotaOverview" : nil)
+        completion(Timeline(entries: [entry],
+                            policy: .after(Date().addingTimeInterval(QuotaFetcher.refreshInterval))))
     }
 }

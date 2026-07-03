@@ -93,9 +93,11 @@ final class PairingModel: ObservableObject {
         for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let flags = Int32(ptr.pointee.ifa_flags)
             guard (flags & IFF_UP) == IFF_UP, (flags & IFF_LOOPBACK) == 0 else { continue }
-            guard ptr.pointee.ifa_addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            // ifa_addr is nullable — some interface entries have no address;
+            // dereferencing it unconditionally crashes. Guard first.
+            guard let addr = ptr.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) else { continue }
             var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            getnameinfo(ptr.pointee.ifa_addr, socklen_t(ptr.pointee.ifa_addr.pointee.sa_len),
+            getnameinfo(addr, socklen_t(addr.pointee.sa_len),
                         &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST)
             let ip = String(cString: buf)
             if ip.hasPrefix("169.254") { continue } // link-local

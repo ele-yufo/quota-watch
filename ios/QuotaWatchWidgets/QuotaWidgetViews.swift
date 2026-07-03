@@ -185,7 +185,7 @@ struct SmallWidgetView: View {
             if rows.isEmpty {
                 WidgetEmptyView()
             } else {
-                VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(pinnedProvider?.displayName ?? "quota·watch")
                         .font(pinnedProvider == nil ? .qwDisplay(12) : .qwLabel(12))
                         .foregroundStyle(Theme.ink).lineLimit(1).minimumScaleFactor(0.7)
