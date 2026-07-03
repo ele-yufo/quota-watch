@@ -47,6 +47,8 @@ struct QuotaListView: View {
                     live: model.isPolling,
                     updatedAt: model.lastUpdated,
                     channelCount: model.providers.count,
+                    mode: model.displayMode,
+                    onToggleMode: { withAnimation(.snappy) { model.toggleDisplayMode() } },
                     onRefresh: { Task { await model.pollNow() } }
                 )
                 .padding(.top, 8)
@@ -55,6 +57,7 @@ struct QuotaListView: View {
                     AlertBanner(
                         count: model.criticalCount,
                         urgent: model.criticalWindows.min { $0.window.remainingPct < $1.window.remainingPct },
+                        mode: model.displayMode,
                         onDismiss: { withAnimation(.snappy) { model.dismissAlert() } }
                     )
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -71,7 +74,7 @@ struct QuotaListView: View {
                 }
 
                 ForEach(Array(model.providers.enumerated()), id: \.element.id) { idx, provider in
-                    ProviderDialCard(provider: provider, index: idx) { detail = provider }
+                    ProviderDialCard(provider: provider, index: idx, mode: model.displayMode) { detail = provider }
                 }
             }
             .padding(.horizontal, 16)
@@ -91,27 +94,44 @@ private struct MastheadView: View {
     let live: Bool
     let updatedAt: Date?
     let channelCount: Int
+    let mode: QuotaDisplayMode
+    let onToggleMode: () -> Void
     let onRefresh: () -> Void
 
     var body: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 0) {
                     Text("quota").font(.qwDisplay(30)).foregroundStyle(Theme.ink)
                     Text("·").font(.qwDisplay(30)).foregroundStyle(UsageLevel.low.color)
                     Text("watch").font(.qwDisplayItalic(30)).foregroundStyle(Theme.ink)
                 }
-                HStack(spacing: 6) {
-                    Circle().fill(live ? UsageLevel.ok.color : Theme.ink3)
-                        .frame(width: 6, height: 6)
-                    Text(live ? "采集中" : "实时")
-                        .font(.qwLabel(10.5)).foregroundStyle(Theme.ink2)
-                    if let updatedAt {
-                        Text("· \(Formatting.ago(updatedAt)) 前")
-                            .font(.qwLabel(10.5)).foregroundStyle(Theme.ink3)
+                HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Circle().fill(live ? UsageLevel.ok.color : Theme.ink3)
+                            .frame(width: 6, height: 6)
+                        Text(live ? "采集中" : "实时")
+                            .font(.qwLabel(10.5)).foregroundStyle(Theme.ink2)
+                        if let updatedAt {
+                            Text("· \(Formatting.ago(updatedAt)) 前")
+                                .font(.qwLabel(10.5)).foregroundStyle(Theme.ink3)
+                        }
                     }
-                    Text("· \(channelCount) 渠道")
-                        .font(.qwLabel(10.5)).foregroundStyle(Theme.ink3)
+                    // Global used/remaining toggle — flips the number + bars app-wide
+                    // (and the widgets, via the shared store).
+                    Button(action: onToggleMode) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 9, weight: .bold))
+                            Text(mode.label).font(.qwLabel(10.5))
+                        }
+                        .foregroundStyle(Theme.ink2)
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(Theme.surface, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Theme.hairline))
+                        .contentTransition(.numericText())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             Spacer()
@@ -135,6 +155,7 @@ private struct MastheadView: View {
 private struct AlertBanner: View {
     let count: Int
     let urgent: (provider: QuotaProvider, window: QuotaWindow)?
+    var mode: QuotaDisplayMode = .used
     let onDismiss: () -> Void
 
     var body: some View {
@@ -148,7 +169,7 @@ private struct AlertBanner: View {
                     .foregroundStyle(Theme.ink)
                 if let urgent {
                     let reset = Formatting.resetCountdown(urgent.window.resetDate).map { " · \($0)后重置" } ?? ""
-                    Text("\(urgent.provider.displayName) · \(urgent.window.windowName) · \(Int(urgent.window.usedPct.rounded()))%\(reset)")
+                    Text("\(urgent.provider.displayName) · \(urgent.window.windowName) · \(mode.label)\(Int(urgent.window.displayPct(mode).rounded()))%\(reset)")
                         .font(.qwLabel(11)).foregroundStyle(Theme.ink2)
                         .lineLimit(1)
                 }
@@ -194,6 +215,7 @@ private struct CircleIconButton: View {
 private struct ProviderDialCard: View {
     let provider: QuotaProvider
     var index: Int = 0
+    var mode: QuotaDisplayMode = .used
     let onTap: () -> Void
 
     private var style: ProviderStyle { ProviderStyle.of(provider.providerType) }
@@ -223,7 +245,7 @@ private struct ProviderDialCard: View {
                 } else {
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(provider.sortedWindows) { window in
-                            DialColumn(window: window)
+                            DialColumn(window: window, mode: mode)
                         }
                         if provider.sortedWindows.count < 3 {
                             Spacer(minLength: 0)
@@ -241,11 +263,12 @@ private struct ProviderDialCard: View {
 
 private struct DialColumn: View {
     let window: QuotaWindow
+    var mode: QuotaDisplayMode = .used
 
     var body: some View {
         let level = UsageLevel(remainingPct: window.remainingPct)
         VStack(spacing: 7) {
-            RingGauge(usedPct: window.usedPct, level: level,
+            RingGauge(pct: window.displayPct(mode), level: level,
                       caption: window.windowKind.label, diameter: 74, lineWidth: 8)
             if let reset = Formatting.resetCountdown(window.resetDate) {
                 Text("↻ \(reset)")

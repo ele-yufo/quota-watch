@@ -3,76 +3,21 @@ import WidgetKit
 
 // MARK: - Helpers
 
-/// Deep instrument-panel background for the home-screen widgets.
 private struct WidgetBG: View {
     var body: some View {
         LinearGradient(colors: [Theme.bgTop, Theme.bgBottom], startPoint: .top, endPoint: .bottom)
     }
 }
 
-/// Strip the redundant "(5h)" tail a window name repeats (the chip shows it).
 private func cleanWindowName(_ name: String) -> String {
     guard let r = name.range(of: #"\s*\([^)]*\)\s*$"#, options: .regularExpression) else { return name }
     return String(name[..<r.lowerBound])
 }
 
-/// Slice `all` into pages of `perPage`, wrapping `page` so the next-page button
-/// cycles. Returns the current slice, the normalized page index, and page count.
 private func pagedSlice<T>(_ all: [T], page: Int, perPage: Int) -> (slice: [T], page: Int, total: Int) {
     let total = max(1, Int(ceil(Double(all.count) / Double(perPage))))
     let cur = ((page % total) + total) % total
     return (Array(all.dropFirst(cur * perPage).prefix(perPage)), cur, total)
-}
-
-// MARK: - A single stat line (shared by small / medium / large)
-
-/// One row: a leading glyph (provider badge, or window chip when pinned), then a
-/// clean name line, then a bar + reset line — so long names never crowd the %.
-private struct StatRow: View {
-    let item: RankedWindow
-    var compact = false
-    var pinned = false
-    var showReset = false
-
-    private var label: String {
-        pinned ? cleanWindowName(item.window.windowName) : item.provider.displayName
-    }
-
-    var body: some View {
-        HStack(spacing: compact ? 8 : 10) {
-            leading
-            VStack(alignment: .leading, spacing: compact ? 3 : 5) {
-                HStack(spacing: 5) {
-                    Text(label)
-                        .font(.qwLabel(compact ? 11 : 12.5))
-                        .foregroundStyle(Theme.ink)
-                        .lineLimit(1).minimumScaleFactor(0.85)
-                    Spacer(minLength: 4)
-                    Text("\(Int(item.window.usedPct.rounded()))%")
-                        .font(.qwNum(compact ? 11.5 : 13, .bold))
-                        .foregroundStyle(item.level.color)
-                }
-                HStack(spacing: 7) {
-                    MiniBar(fraction: item.window.usedPct / 100, color: item.level.color)
-                    if showReset, let reset = Formatting.resetCountdown(item.window.resetDate) {
-                        Text("↻\(reset)")
-                            .font(.qwLabel(9.5)).foregroundStyle(Theme.ink3).fixedSize()
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var leading: some View {
-        if pinned {
-            Text(item.window.windowKind.label)
-                .font(.qwLabel(compact ? 9 : 10)).foregroundStyle(Theme.ink2)
-                .frame(width: compact ? 26 : 30).padding(.vertical, 3)
-                .background(Capsule().fill(Color.white.opacity(0.08)))
-        } else {
-            ProviderBadge(style: .of(item.provider.providerType), size: compact ? 22 : 26)
-        }
-    }
 }
 
 private struct MiniBar: View {
@@ -82,32 +27,110 @@ private struct MiniBar: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.10))
-                Capsule().fill(color)
-                    .frame(width: geo.size.width * max(0.02, min(1, fraction)))
+                Capsule().fill(color).frame(width: geo.size.width * max(0.02, min(1, fraction)))
             }
         }
         .frame(height: 4)
     }
 }
 
-/// Wordmark header. When there is more than one page, a prominent pill button
-/// (`1/2 ▶`) pages the list; otherwise a compact updated-time is shown.
+// MARK: - Window gauge (a single window: chip + value + bar), side-by-side
+
+private struct WindowGauge: View {
+    let window: QuotaWindow
+    let mode: QuotaDisplayMode
+
+    var body: some View {
+        let level = UsageLevel(remainingPct: window.remainingPct)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(window.windowKind.label)
+                    .font(.qwLabel(8.5)).foregroundStyle(Theme.ink2)
+                Text("\(Int(window.displayPct(mode).rounded()))%")
+                    .font(.qwNum(11, .bold)).foregroundStyle(level.color)
+                Spacer(minLength: 0)
+            }
+            MiniBar(fraction: window.displayFraction(mode), color: level.color)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Provider row (name + its windows side by side) — overview
+
+private struct ProviderRow: View {
+    let provider: QuotaProvider
+    let mode: QuotaDisplayMode
+    var maxWindows = 2
+
+    var body: some View {
+        HStack(spacing: 9) {
+            ProviderBadge(style: .of(provider.providerType), size: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(provider.displayName)
+                    .font(.qwLabel(11.5)).foregroundStyle(Theme.ink)
+                    .lineLimit(1).minimumScaleFactor(0.85)
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(provider.sortedWindows.prefix(maxWindows)) { w in
+                        WindowGauge(window: w, mode: mode)
+                    }
+                    if provider.sortedWindows.count < maxWindows { Spacer(minLength: 0) }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Compact stat row (small widget) — one window per line
+
+private struct StatRow: View {
+    let item: RankedWindow
+    let mode: QuotaDisplayMode
+    var pinned = false
+
+    private var label: String {
+        pinned ? cleanWindowName(item.window.windowName) : item.provider.displayName
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if pinned {
+                Text(item.window.windowKind.label)
+                    .font(.qwLabel(9)).foregroundStyle(Theme.ink2)
+                    .frame(width: 26).padding(.vertical, 3)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+            } else {
+                ProviderBadge(style: .of(item.provider.providerType), size: 20)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Text(label).font(.qwLabel(10.5)).foregroundStyle(Theme.ink)
+                        .lineLimit(1).minimumScaleFactor(0.85)
+                    Spacer(minLength: 4)
+                    Text("\(Int(item.window.displayPct(mode).rounded()))%")
+                        .font(.qwNum(11.5, .bold)).foregroundStyle(item.level.color)
+                }
+                MiniBar(fraction: item.window.displayFraction(mode), color: item.level.color)
+            }
+        }
+    }
+}
+
+// MARK: - Header (wordmark + mode chip + paging)
+
 private struct PagedHeader: View {
-    let updated: Date?
-    let stale: Bool
-    let count: Int
+    let mode: QuotaDisplayMode
     let page: Int
     let total: Int
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            Text("quota").font(.qwDisplay(16)).foregroundStyle(Theme.ink)
-            Text("·").font(.qwDisplay(16)).foregroundStyle(UsageLevel.low.color)
-            Text("watch").font(.qwDisplayItalic(16)).foregroundStyle(Theme.ink)
-            if let updated {
-                Text((stale ? "缓存·" : "") + Formatting.ago(updated))
-                    .font(.qwLabel(9)).foregroundStyle(Theme.ink3).lineLimit(1)
-            }
+            Text("quota").font(.qwDisplay(15)).foregroundStyle(Theme.ink)
+            Text("·").font(.qwDisplay(15)).foregroundStyle(UsageLevel.low.color)
+            Text("watch").font(.qwDisplayItalic(15)).foregroundStyle(Theme.ink)
+            Text(mode.label).font(.qwLabel(8.5)).foregroundStyle(Theme.ink3)
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(Capsule().fill(Color.white.opacity(0.08)))
             Spacer(minLength: 4)
             if total > 1 {
                 Button(intent: NextPageIntent()) {
@@ -141,7 +164,7 @@ struct FeaturedWidgetView: View {
     }
 }
 
-// MARK: - Small (mini dashboard — top 3)
+// MARK: - Small (compact — top 3 providers, or a pinned provider's windows)
 
 struct SmallWidgetView: View {
     let entry: QuotaEntry
@@ -163,21 +186,17 @@ struct SmallWidgetView: View {
                 WidgetEmptyView()
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Text(pinnedProvider?.displayName ?? "quota·watch")
                             .font(pinnedProvider == nil ? .qwDisplay(14) : .qwLabel(13))
                             .foregroundStyle(Theme.ink).lineLimit(1)
-                        Spacer(minLength: 4)
-                        if let u = entry.lastUpdated {
-                            Text(entry.isStale ? "缓存" : Formatting.ago(u))
-                                .font(.qwLabel(8.5)).foregroundStyle(Theme.ink3)
-                        }
+                        Spacer(minLength: 3)
+                        Text(entry.displayMode.label).font(.qwLabel(8)).foregroundStyle(Theme.ink3)
                     }
                     Rectangle().fill(Theme.hairline).frame(height: 1)
-                    ForEach(rows.prefix(3)) { StatRow(item: $0, compact: true, pinned: pinnedProvider != nil) }
+                    ForEach(rows.prefix(3)) { StatRow(item: $0, mode: entry.displayMode, pinned: pinnedProvider != nil) }
                     if rows.count > 3 {
-                        Text("+\(rows.count - 3) 个渠道")
-                            .font(.qwLabel(9)).foregroundStyle(Theme.ink3)
+                        Text("+\(rows.count - 3) 个渠道").font(.qwLabel(9)).foregroundStyle(Theme.ink3)
                     }
                     Spacer(minLength: 0)
                 }
@@ -187,28 +206,25 @@ struct SmallWidgetView: View {
     }
 }
 
-// MARK: - Overview router (medium + large, both paginated)
+// MARK: - Overview (medium + large) — each provider with both windows, paginated
 
 struct OverviewWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: QuotaEntry
 
     var body: some View {
-        // systemMedium fits ~3 two-line rows + header; more overflows and clips.
-        // systemLarge has room for 6 (with reset). Content margins are disabled
-        // on the widget (see bundle) so we control padding here.
         let large = family == .systemLarge
-        let perPage = large ? 6 : 3
+        let perPage = large ? 5 : 3
+        let maxWindows = large ? 3 : 2
         Group {
-            if entry.overviewRows.isEmpty {
+            if entry.sortedProviders.isEmpty {
                 WidgetEmptyView()
             } else {
-                let p = pagedSlice(entry.overviewRows, page: entry.page, perPage: perPage)
-                VStack(alignment: .leading, spacing: large ? 10 : 7) {
-                    PagedHeader(updated: entry.lastUpdated, stale: entry.isStale,
-                                count: entry.providers.count, page: p.page, total: p.total)
+                let p = pagedSlice(entry.sortedProviders, page: entry.page, perPage: perPage)
+                VStack(alignment: .leading, spacing: large ? 12 : 9) {
+                    PagedHeader(mode: entry.displayMode, page: p.page, total: p.total)
                     Rectangle().fill(Theme.hairline).frame(height: 1)
-                    ForEach(p.slice) { StatRow(item: $0, showReset: large) }
+                    ForEach(p.slice) { ProviderRow(provider: $0, mode: entry.displayMode, maxWindows: maxWindows) }
                     Spacer(minLength: 0)
                 }
                 .padding(large ? 15 : 12)
@@ -225,10 +241,10 @@ struct AccessoryCircularView: View {
     var body: some View {
         Group {
             if let f = entry.featured {
-                Gauge(value: min(1, f.window.usedPct / 100)) {
+                Gauge(value: min(1, f.window.displayFraction(entry.displayMode))) {
                     Text(f.window.windowKind.label)
                 } currentValueLabel: {
-                    Text("\(Int(f.window.usedPct.rounded()))")
+                    Text("\(Int(f.window.displayPct(entry.displayMode).rounded()))")
                 }
                 .gaugeStyle(.accessoryCircular)
                 .tint(f.level.color)
@@ -250,11 +266,11 @@ struct AccessoryRectangularView: View {
                         Text(f.provider.displayName).font(.headline).lineLimit(1)
                         Text(f.window.windowKind.label).font(.caption2).foregroundStyle(.secondary)
                     }
-                    Gauge(value: min(1, f.window.usedPct / 100)) { EmptyView() }
+                    Gauge(value: min(1, f.window.displayFraction(entry.displayMode))) { EmptyView() }
                         .gaugeStyle(.accessoryLinearCapacity)
                         .tint(f.level.color)
                     HStack {
-                        Text("\(Int(f.window.usedPct.rounded()))% 已用")
+                        Text("\(Int(f.window.displayPct(entry.displayMode).rounded()))% \(entry.displayMode.label)")
                         Spacer()
                         if let reset = Formatting.resetCountdown(f.window.resetDate) { Text(reset) }
                     }
@@ -272,7 +288,7 @@ struct AccessoryInlineView: View {
     let entry: QuotaEntry
     var body: some View {
         if let f = entry.featured {
-            Label("\(f.provider.displayName) \(Int(f.window.usedPct.rounded()))%",
+            Label("\(f.provider.displayName) \(Int(f.window.displayPct(entry.displayMode).rounded()))%",
                   systemImage: "gauge.with.dots.needle.bottom.50percent")
         } else {
             Label("quota·watch", systemImage: "gauge.with.dots.needle.bottom.50percent")

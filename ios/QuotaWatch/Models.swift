@@ -51,11 +51,30 @@ struct QuotaWindow: Codable, Identifiable, Hashable {
     /// Consumed percentage — the headline number.
     var usedPct: Double { max(0, min(100, 100 - remainingPct)) }
 
+    /// Clamped remaining percentage.
+    var remaining: Double { max(0, min(100, remainingPct)) }
+
+    /// The number to show under the current display mode (已用 vs 剩余).
+    func displayPct(_ mode: QuotaDisplayMode) -> Double {
+        mode == .remaining ? remaining : usedPct
+    }
+    /// Bar fill fraction under the current mode (0–1).
+    func displayFraction(_ mode: QuotaDisplayMode) -> Double { displayPct(mode) / 100 }
+
     /// resetAt parsed to a Date (ISO-8601), nil if absent/unparseable.
     var resetDate: Date? {
         guard let resetAt else { return nil }
         return ISO8601DateParser.date(from: resetAt)
     }
+}
+
+/// Global display preference — show each window's *used* amount or its
+/// *remaining* amount. Persisted in the App Group so app + widgets agree.
+enum QuotaDisplayMode: String, CaseIterable {
+    case used, remaining
+
+    var label: String { self == .used ? "已用" : "剩余" }
+    var next: QuotaDisplayMode { self == .used ? .remaining : .used }
 }
 
 /// One provider — matches a top-level element of `GET /quota`.

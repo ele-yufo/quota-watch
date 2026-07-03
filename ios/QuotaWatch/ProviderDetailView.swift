@@ -3,6 +3,7 @@ import SwiftUI
 /// Per-provider detail — a big dial per window with its full readout
 /// (used/remaining, absolute reset time). Dark instrument aesthetic.
 struct ProviderDetailView: View {
+    @Environment(AppModel.self) private var model
     let provider: QuotaProvider
     private var style: ProviderStyle { ProviderStyle.of(provider.providerType) }
 
@@ -18,7 +19,7 @@ struct ProviderDetailView: View {
                             .padding(.top, 40)
                     } else {
                         ForEach(provider.sortedWindows) { window in
-                            WindowDetailCard(window: window)
+                            WindowDetailCard(window: window, mode: model.displayMode)
                         }
                     }
                 }
@@ -46,11 +47,12 @@ struct ProviderDetailView: View {
 
 private struct WindowDetailCard: View {
     let window: QuotaWindow
+    var mode: QuotaDisplayMode = .used
 
     var body: some View {
         let level = UsageLevel(remainingPct: window.remainingPct)
         HStack(spacing: 18) {
-            RingGauge(usedPct: window.usedPct, level: level,
+            RingGauge(pct: window.displayPct(mode), level: level,
                       caption: window.windowKind.label, diameter: 96, lineWidth: 10)
 
             VStack(alignment: .leading, spacing: 8) {

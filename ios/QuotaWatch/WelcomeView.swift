@@ -12,7 +12,7 @@ struct WelcomeView: View {
                 Spacer(minLength: 44)
 
                 // a decorative hero dial as the brand mark
-                RingGauge(usedPct: 65, level: .ok, diameter: 120, lineWidth: 12, showNumber: false)
+                RingGauge(pct: 65, level: .ok, diameter: 120, lineWidth: 12, showNumber: false)
                     .overlay(
                         Image(systemName: "gauge.with.dots.needle.67percent")
                             .font(.system(size: 34, weight: .semibold))

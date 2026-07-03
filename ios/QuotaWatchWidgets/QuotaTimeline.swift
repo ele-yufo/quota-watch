@@ -23,6 +23,8 @@ struct QuotaEntry: TimelineEntry {
     /// Paging index for the medium/large widgets (wraps in the view). Advanced by
     /// the interactive NextPageIntent button.
     var page: Int = 0
+    /// Show used vs remaining — mirrors the app's global choice.
+    var displayMode: QuotaDisplayMode = .used
 
     /// The window a single-window widget features: the selected provider's
     /// tightest window, or the tightest across everything when none is pinned.
@@ -38,11 +40,17 @@ struct QuotaEntry: TimelineEntry {
             .min { $0.window.remainingPct < $1.window.remainingPct }
     }
 
-    /// Each provider's tightest window, worst first — for the overview widget.
+    /// Each provider's tightest window, worst first — for the small widget.
     var overviewRows: [RankedWindow] {
         providers
             .compactMap { p in p.primary.map { RankedWindow(provider: p, window: $0) } }
             .sorted { $0.window.remainingPct < $1.window.remainingPct }
+    }
+
+    /// Providers ordered by their tightest window (worst first) — the medium /
+    /// large overview shows each with all of its windows.
+    var sortedProviders: [QuotaProvider] {
+        providers.sorted { ($0.primary?.remainingPct ?? 100) < ($1.primary?.remainingPct ?? 100) }
     }
 
     static let placeholder = QuotaEntry(
@@ -58,6 +66,7 @@ enum QuotaFetcher {
 
     static func entry(selecting providerId: String?) async -> QuotaEntry {
         let page = SharedStore.widgetPage
+        let mode = SharedStore.displayMode
         let host = SharedStore.host
         if !host.isEmpty {
             let client = APIClient(
@@ -66,19 +75,35 @@ enum QuotaFetcher {
             if let providers = try? await client.quota() {
                 SharedStore.saveSnapshot(providers)
                 return QuotaEntry(
-                    date: Date(), providers: providers,
-                    selectedProviderId: providerId, lastUpdated: Date(), isStale: false, page: page)
+                    date: Date(), providers: providers, selectedProviderId: providerId,
+                    lastUpdated: Date(), isStale: false, page: page, displayMode: mode)
             }
         }
         // Daemon unreachable (wrong network, asleep Mac, not paired) → last cache.
         if let cached = SharedStore.loadSnapshot() {
             return QuotaEntry(
-                date: Date(), providers: cached.providers,
-                selectedProviderId: providerId, lastUpdated: cached.date, isStale: true, page: page)
+                date: Date(), providers: cached.providers, selectedProviderId: providerId,
+                lastUpdated: cached.date, isStale: true, page: page, displayMode: mode)
         }
         return QuotaEntry(
-            date: Date(), providers: [],
-            selectedProviderId: providerId, lastUpdated: nil, isStale: true, page: page)
+            date: Date(), providers: [], selectedProviderId: providerId,
+            lastUpdated: nil, isStale: true, page: page, displayMode: mode)
+    }
+
+    /// Fast, network-free entry from the cache (or demo when nothing cached) —
+    /// used for the placeholder/snapshot so a freshly-added widget renders
+    /// instantly instead of a white box while a network fetch blocks.
+    static func cachedEntry(selecting providerId: String?) -> QuotaEntry {
+        let page = SharedStore.widgetPage
+        let mode = SharedStore.displayMode
+        if let cached = SharedStore.loadSnapshot() {
+            return QuotaEntry(
+                date: Date(), providers: cached.providers, selectedProviderId: providerId,
+                lastUpdated: cached.date, isStale: false, page: page, displayMode: mode)
+        }
+        return QuotaEntry(
+            date: Date(), providers: DemoData.providers(), selectedProviderId: providerId,
+            lastUpdated: nil, isStale: true, page: page, displayMode: mode)
     }
 
     static func timeline(selecting providerId: String?) async -> Timeline<QuotaEntry> {
@@ -91,8 +116,10 @@ enum QuotaFetcher {
 struct FeaturedProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> QuotaEntry { .placeholder }
 
+    // Snapshot must be instant (it drives the first paint) — read the cache, no
+    // network. The timeline then refreshes with live data.
     func snapshot(for configuration: SelectProviderIntent, in context: Context) async -> QuotaEntry {
-        await QuotaFetcher.entry(selecting: configuration.provider?.id)
+        QuotaFetcher.cachedEntry(selecting: configuration.provider?.id)
     }
 
     func timeline(for configuration: SelectProviderIntent, in context: Context) async -> Timeline<QuotaEntry> {
@@ -100,12 +127,13 @@ struct FeaturedProvider: AppIntentTimelineProvider {
     }
 }
 
-/// Non-configurable overview widget (medium family).
+/// Non-configurable overview widget (medium + large families).
 struct OverviewProvider: TimelineProvider {
     func placeholder(in context: Context) -> QuotaEntry { .placeholder }
 
+    // Instant, cache-only snapshot so a freshly-added widget paints immediately.
     func getSnapshot(in context: Context, completion: @escaping (QuotaEntry) -> Void) {
-        Task { completion(await QuotaFetcher.entry(selecting: nil)) }
+        completion(QuotaFetcher.cachedEntry(selecting: nil))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuotaEntry>) -> Void) {

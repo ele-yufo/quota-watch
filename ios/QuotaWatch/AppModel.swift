@@ -25,6 +25,16 @@ final class AppModel {
         didSet { UserDefaults.standard.set(demoMode, forKey: "qw.demo") }
     }
 
+    /// Show each window's used amount or its remaining amount — a global choice,
+    /// mirrored to the App Group so the widgets match.
+    var displayMode: QuotaDisplayMode {
+        didSet {
+            UserDefaults.standard.set(displayMode.rawValue, forKey: "qw.displayMode")
+            SharedStore.setDisplayMode(displayMode)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
     // ── Live state ──────────────────────────────────────────────────────
     var providers: [QuotaProvider] = []
     var lastUpdated: Date?
@@ -46,10 +56,15 @@ final class AppModel {
         self.port = storedPort == 0 ? 3737 : storedPort
         self.token = KeychainHelper.loadToken() ?? ""
         self.demoMode = defaults.bool(forKey: "qw.demo")
+        self.displayMode = QuotaDisplayMode(rawValue: defaults.string(forKey: "qw.displayMode") ?? "") ?? .used
         // didSet doesn't fire during init — seed the shared container so a widget
         // added before the first settings change still has host/port/token.
         SharedStore.saveConnection(host: host, port: port, token: token)
+        SharedStore.setDisplayMode(displayMode)
     }
+
+    /// Flip between showing used and remaining, everywhere.
+    func toggleDisplayMode() { displayMode = displayMode.next }
 
     /// Mirror connection settings to the App Group + nudge widgets to reload.
     private func syncConnectionToWidget() {

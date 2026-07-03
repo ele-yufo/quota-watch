@@ -18,6 +18,16 @@ enum SharedStore {
         static let snapshot = "qw.snapshot"       // JSON-encoded [QuotaProvider]
         static let snapshotAt = "qw.snapshotAt"   // epoch seconds of last good fetch
         static let widgetPage = "qw.widgetPage"   // paging index for the widgets
+        static let displayMode = "qw.displayMode" // "used" | "remaining"
+    }
+
+    // ── Display mode (used vs remaining), shared app ↔ widget ───────────
+
+    static var displayMode: QuotaDisplayMode {
+        QuotaDisplayMode(rawValue: defaults?.string(forKey: K.displayMode) ?? "") ?? .used
+    }
+    static func setDisplayMode(_ mode: QuotaDisplayMode) {
+        defaults?.set(mode.rawValue, forKey: K.displayMode)
     }
 
     // ── Widget paging (interactive "next page" button) ──────────────────
