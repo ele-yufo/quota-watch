@@ -5,19 +5,30 @@ import SwiftUI
 /// Grouped by provider, one progress row per quota window.
 struct MenuBarView: View {
     @ObservedObject var store: QuotaStore
+    @StateObject private var pairing = PairingModel()
+    @State private var showPairing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
+        Group {
+            if showPairing {
+                PairingView(model: pairing) {
+                    showPairing = false
+                    pairing.stop()
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    Divider()
 
-            if let error = store.errorMessage {
-                errorBanner(error)
+                    if let error = store.errorMessage {
+                        errorBanner(error)
+                    }
+
+                    content
+                    Divider()
+                    footer
+                }
             }
-
-            content
-            Divider()
-            footer
         }
         .frame(width: 340)
     }
@@ -114,7 +125,16 @@ struct MenuBarView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
+            Button {
+                pairing.start()
+                showPairing = true
+            } label: {
+                Label("配对", systemImage: "qrcode")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+
             Button {
                 store.refresh()
             } label: {
@@ -126,7 +146,7 @@ struct MenuBarView: View {
             Button {
                 NSWorkspace.shared.open(URL(string: "http://localhost:3000")!)
             } label: {
-                Label("Open web", systemImage: "safari")
+                Label("Web", systemImage: "safari")
                     .font(.caption)
             }
             .buttonStyle(.plain)
