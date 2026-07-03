@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Observation
+import WidgetKit
 
 /// Connection settings + live quota state. Host/port persist in UserDefaults;
 /// the API token lives in the Keychain. Owns the auto-refresh loop.
@@ -8,14 +9,14 @@ import Observation
 final class AppModel {
     // ── Connection settings (persisted) ────────────────────────────────
     var host: String {
-        didSet { UserDefaults.standard.set(host, forKey: "qw.host") }
+        didSet { UserDefaults.standard.set(host, forKey: "qw.host"); syncConnectionToWidget() }
     }
     var port: Int {
-        didSet { UserDefaults.standard.set(port, forKey: "qw.port") }
+        didSet { UserDefaults.standard.set(port, forKey: "qw.port"); syncConnectionToWidget() }
     }
     /// Backed by Keychain, not UserDefaults.
     var token: String {
-        didSet { KeychainHelper.save(token: token.isEmpty ? nil : token) }
+        didSet { KeychainHelper.save(token: token.isEmpty ? nil : token); syncConnectionToWidget() }
     }
 
     /// Demo mode — shows built-in sample data with no daemon. Lets users preview
@@ -45,6 +46,21 @@ final class AppModel {
         self.port = storedPort == 0 ? 3737 : storedPort
         self.token = KeychainHelper.loadToken() ?? ""
         self.demoMode = defaults.bool(forKey: "qw.demo")
+        // didSet doesn't fire during init — seed the shared container so a widget
+        // added before the first settings change still has host/port/token.
+        SharedStore.saveConnection(host: host, port: port, token: token)
+    }
+
+    /// Mirror connection settings to the App Group + nudge widgets to reload.
+    private func syncConnectionToWidget() {
+        SharedStore.saveConnection(host: host, port: port, token: token)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Push the latest snapshot to the shared container and refresh any widgets.
+    private func persistForWidget() {
+        SharedStore.saveSnapshot(providers)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     var isConfigured: Bool {
@@ -59,6 +75,7 @@ final class AppModel {
         lastUpdated = Date()
         loadError = nil
         initialLoadFailed = false
+        persistForWidget()
     }
 
     /// Leave demo mode and clear the sample data.
@@ -125,6 +142,7 @@ final class AppModel {
             lastUpdated = Date()
             loadError = nil
             initialLoadFailed = false
+            persistForWidget()
             return
         }
         guard isConfigured, !isRefreshing else { return }
@@ -135,6 +153,7 @@ final class AppModel {
             lastUpdated = Date()
             loadError = nil
             initialLoadFailed = false
+            persistForWidget()
         } catch {
             loadError = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }

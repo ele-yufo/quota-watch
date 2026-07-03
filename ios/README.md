@@ -74,6 +74,28 @@ quota-watch connect --qr --host <公网IP或域名>
 app 检测到非内网地址时会警告「明文 HTTP 会暴露 Token」，**强烈建议用隧道**
 （Tailscale / Cloudflare Tunnel / WireGuard）而不是把端口裸露到公网。
 
+## 小组件（主屏 + 锁屏 / 灵动岛）
+
+`QuotaWatchWidgets` 这个 WidgetKit extension target 提供三类小组件：
+
+- **配额 · 单窗口**（主屏小号）：一个大号环形表盘显示「最紧张窗口」的已用%，
+  下面是渠道名 + 窗口徽标（5h/7d）+ reset 倒计时。**长按可指定盯某个渠道**
+  （AppIntent 配置），留空则自动盯全局最紧张的。
+- **配额 · 概览**（主屏中号）：每个渠道最紧张的窗口一览，按紧张度排序（最紧的在上）。
+- **锁屏 / 灵动岛**（accessory）：圆形表盘（最紧张%）、矩形一行（渠道·窗口·%·reset）、
+  inline 一行，锁屏与息屏常显、Smart Stack 可用。
+
+取数策略：**网络优先 + 缓存兜底**——小组件的 TimelineProvider 用共享的主机/端口/Token
+直接拉 `/quota`（配了公网隧道后任何网络都能取实时数据），拉不到就显示 app 上次写入
+的缓存快照；每 ~20 分钟刷新一次（WidgetKit 预算内），app 每次刷新时也会主动
+`reloadAllTimelines`。视觉复用 app 的 `RingGauge` / `ProviderBadge` / 配色。
+
+> ⚠️ **需要付费 Apple Developer 账号**：小组件靠 **App Group**
+> (`group.io.quotawatch.app`) 在 app 与 extension 间共享主机/端口/Token + 快照，
+> App Group 能力需付费账号才能签名。生成工程后在 Xcode 的
+> **Signing & Capabilities** 里给 `QuotaWatch` 和 `QuotaWatchWidgets` 两个 target
+> 都确认勾上 App Group（entitlements 已在仓库里配好，选好 Team 即可）。
+
 ## 命令行构建（可选）
 
 ```bash
@@ -81,6 +103,11 @@ xcodegen generate --spec ios/project.yml
 xcodebuild -project ios/QuotaWatch.xcodeproj -scheme QuotaWatch \
   -destination 'generic/platform=iOS Simulator' build
 ```
+
+> 构建 asset catalog（actool）要求所用 **Xcode 版本与已安装的模拟器 runtime 匹配**。
+> 若报 `No simulator runtime version ... available`，说明装了更高版本的模拟器
+> runtime（如 iOS 27）却用了旧版 Xcode——用匹配的 Xcode 即可，例如
+> `DEVELOPER_DIR=/path/to/Xcode-beta.app/Contents/Developer xcodebuild …`。
 
 ## 与 daemon 的 API 契约
 
@@ -103,17 +130,33 @@ daemon 服务明文 HTTP，用户可能经 LAN IP / 隧道（Tailscale 的 100.6
 
 ```
 ios/
-├── project.yml                 XcodeGen 工程定义
-└── QuotaWatch/
-    ├── QuotaWatchApp.swift      App 入口（@main）
-    ├── AppModel.swift           连接设置 + 配额状态 + 10s 自动刷新 + 告警计数（@Observable）
-    ├── Models.swift             Codable 模型（WindowKind 带 unknown 容错）
-    ├── APIClient.swift          async/await URLSession 客户端（typed error）
-    ├── PairingPayload.swift     qw://pair 二维码解析 + 私网/公网判定
-    ├── QRScannerView.swift      VisionKit 扫码（DataScannerViewController）
-    ├── KeychainHelper.swift     Token 的 Keychain 读写
-    ├── Formatting.swift         倒计时 / 相对时间格式化
-    ├── QuotaListView.swift      主页列表（数字滚动 / 骨架屏 / 触感）
-    ├── SettingsView.swift       连接设置页（扫码 + 手动 + 公网警告）
-    └── Info.plist               ATS 明文例外 + 相机/本地网络用途说明
+├── project.yml                 XcodeGen 工程定义（app + widget 两个 target）
+├── QuotaWatch/                 主 app
+│   ├── QuotaWatchApp.swift      App 入口（@main）
+│   ├── AppModel.swift           连接设置 + 配额状态 + 10s 自动刷新 + 告警计数；刷新后写共享快照并 reload 小组件
+│   ├── SharedStore.swift        App Group 桥接：app 写主机/端口/Token + 快照，widget 读（app 与 widget 共用）
+│   ├── Models.swift             Codable 模型（WindowKind 带 unknown 容错）
+│   ├── APIClient.swift          async/await URLSession 客户端（typed error）
+│   ├── PairingPayload.swift     qw://pair 二维码解析 + 私网/公网判定
+│   ├── QRScannerView.swift      VisionKit 扫码（DataScannerViewController）
+│   ├── KeychainHelper.swift     Token 的 Keychain 读写
+│   ├── Formatting.swift         倒计时 / 相对时间格式化
+│   ├── RingGauge.swift          环形表盘（widget 传 animated:false 静态渲染）
+│   ├── ProviderStyle.swift      品牌图标 + 配色（app 与 widget 共用）
+│   ├── Theme.swift              设计系统：配色 / 品牌字体 / UsageLevel（app 与 widget 共用）
+│   ├── QuotaListView.swift      主页列表（数字滚动 / 骨架屏 / 触感）
+│   ├── SettingsView.swift       连接设置页（扫码 + 手动 + 公网警告）
+│   ├── QuotaWatch.entitlements  App Group 能力
+│   └── Info.plist               ATS 明文例外 + 相机/本地网络用途说明
+└── QuotaWatchWidgets/          WidgetKit extension
+    ├── QuotaWatchWidgetBundle.swift  @main，两个 widget 配置
+    ├── QuotaWidgetViews.swift        各族视图（小号环形 / 中号概览 / accessory）
+    ├── QuotaTimeline.swift           取数（网络优先+缓存兜底）+ entry + TimelineProvider
+    ├── SelectProviderIntent.swift    AppIntent 配置：选渠道 / 留空=自动最紧张
+    ├── QuotaWatchWidgets.entitlements App Group 能力
+    └── Info.plist               WidgetKit extension point + 字体 + ATS 例外
 ```
+
+> 共享文件（SharedStore / Models / APIClient / Formatting / RingGauge /
+> ProviderStyle / Theme / DemoData）同时编入两个 target，见 `project.yml` 的
+> `QuotaWatchWidgets.sources`。

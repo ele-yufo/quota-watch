@@ -25,3 +25,5 @@ mac/QuotaWatch.app/
 # frp client config may contain the frps token — never commit the real one
 frpc.toml
 **/frpc.toml
+# iOS build products (xcodebuild output dir)
+ios/build/

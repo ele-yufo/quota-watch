@@ -17,13 +17,46 @@ targets:
     platform: iOS
     sources:
       - path: QuotaWatch
+    dependencies:
+      # Embeds the widget extension into the app bundle.
+      - target: QuotaWatchWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.quotawatch.app
         INFOPLIST_FILE: QuotaWatch/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: QuotaWatch/QuotaWatch.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         # Set your own Apple Developer team to run on a device — either put your
         # team id here (DEVELOPMENT_TEAM: XXXXXXXXXX) or pick it in Xcode's
-        # Signing & Capabilities tab after `xcodegen generate`.
+        # Signing & Capabilities tab after `xcodegen generate`. The App Group +
+        # widget extension require a paid Apple Developer account to provision.
+
+  QuotaWatchWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      # Widget-only code.
+      - path: QuotaWatchWidgets
+      # Files shared with the app, compiled into the extension too (value types
+      # + pure SwiftUI views — no app-only dependencies).
+      - path: QuotaWatch/SharedStore.swift
+      - path: QuotaWatch/Models.swift
+      - path: QuotaWatch/Formatting.swift
+      - path: QuotaWatch/Theme.swift
+      - path: QuotaWatch/ProviderStyle.swift
+      - path: QuotaWatch/RingGauge.swift
+      - path: QuotaWatch/APIClient.swift
+      - path: QuotaWatch/DemoData.swift
+      # Bundled resources the widget needs (brand fonts + brand icons).
+      - path: QuotaWatch/Fonts
+      - path: QuotaWatch/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.quotawatch.app.widgets
+        INFOPLIST_FILE: QuotaWatchWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: QuotaWatchWidgets/QuotaWatchWidgets.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic

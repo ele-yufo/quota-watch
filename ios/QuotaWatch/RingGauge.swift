@@ -11,6 +11,9 @@ struct RingGauge: View {
     var diameter: CGFloat = 78
     var lineWidth: CGFloat = 6
     var showNumber: Bool = true
+    /// Widgets render a static snapshot and never run the onAppear sweep — they
+    /// must pass `false` so the arc draws at its final value instead of empty.
+    var animated: Bool = true
 
     @State private var sweep: Double = 0
 
@@ -24,7 +27,7 @@ struct RingGauge: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: lineWidth)
 
             Circle()
-                .trim(from: 0, to: sweep)
+                .trim(from: 0, to: animated ? sweep : fraction)
                 .stroke(
                     LinearGradient(colors: [level.color.opacity(0.7), level.color],
                                    startPoint: .top, endPoint: .trailing),
@@ -56,9 +59,11 @@ struct RingGauge: View {
         }
         .frame(width: diameter, height: diameter)
         .onAppear {
+            guard animated else { return }
             withAnimation(.easeOut(duration: 0.5)) { sweep = fraction }
         }
         .onChange(of: fraction) { _, new in
+            guard animated else { return }
             withAnimation(.easeOut(duration: 0.4)) { sweep = new }
         }
     }

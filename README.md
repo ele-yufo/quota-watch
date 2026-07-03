@@ -34,7 +34,7 @@ shows you — everywhere you look — exactly how much is left and when it reset
 - ⚡ **Near-realtime** — ~10 s when usage is moving, backing off when idle. GLM tips over its cap and you see it in seconds, not half an hour.
 - 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month), so `5h`, `7d` and `1mo` always read the same order across every surface.
 - 🎨 **Five web dashboards, five layouts** — not recolours. Each theme is its own composition, visualization and motion (see below).
-- 📱 **iOS app** — a dark instrument UI with real provider logos and ring gauges; connects to your Mac over the LAN or a tunnel, pairs by QR.
+- 📱 **iOS app + widgets** — a dark instrument UI with real provider logos and ring gauges; pairs by QR over the LAN or a tunnel. Home-screen & lock-screen widgets show the tightest window at a glance (long-press to pin a provider).
 - 🖥 **macOS menu bar** — the worst window's % in the bar, a per-provider popover on click.
 - 🔒 **Local-first & private** — SQLite on your machine; credentials are used only to call each provider's own API and are never uploaded anywhere.
 
@@ -65,8 +65,9 @@ control dock (top-right, always in the same place).
 - **QR pairing** — run `quota-watch connect --qr` on the Mac and scan; host / port / token fill in automatically.
 - **LAN or public** — connects over your local network or a tunnel (Tailscale / Cloudflare); it warns before sending a token in the clear to a public host.
 - **Dismissible alerts, haptics, live refresh** — the critical-window banner clears with a tap and only returns when something *new* goes critical.
+- **Widgets** — home-screen small (one dial) & medium (multi-provider overview), plus lock-screen / Dynamic Island accessories. They track the tightest window automatically, or long-press to pin a specific provider; data fetches over your tunnel with a cached fallback.
 
-SwiftUI, iOS 18+. See [`ios/README.md`](ios/README.md) to build it.
+SwiftUI, iOS 18+. Widgets need an App Group (paid Apple Developer account). See [`ios/README.md`](ios/README.md) to build it.
 
 <br clear="all" />
 
