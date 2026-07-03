@@ -90,7 +90,8 @@ private struct MiniBar: View {
     }
 }
 
-/// Wordmark header with an optional page indicator + interactive next-page button.
+/// Wordmark header. When there is more than one page, a prominent pill button
+/// (`1/2 ▶`) pages the list; otherwise a compact updated-time is shown.
 private struct PagedHeader: View {
     let updated: Date?
     let stale: Bool
@@ -99,22 +100,24 @@ private struct PagedHeader: View {
     let total: Int
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .center, spacing: 6) {
             Text("quota").font(.qwDisplay(16)).foregroundStyle(Theme.ink)
             Text("·").font(.qwDisplay(16)).foregroundStyle(UsageLevel.low.color)
             Text("watch").font(.qwDisplayItalic(16)).foregroundStyle(Theme.ink)
-            Spacer(minLength: 4)
             if let updated {
-                Text((stale ? "缓存 · " : "") + "\(count) 渠道 · " + Formatting.ago(updated))
+                Text((stale ? "缓存·" : "") + Formatting.ago(updated))
                     .font(.qwLabel(9)).foregroundStyle(Theme.ink3).lineLimit(1)
             }
+            Spacer(minLength: 4)
             if total > 1 {
-                Text("\(page + 1)/\(total)").font(.qwLabel(9.5)).foregroundStyle(Theme.ink2)
                 Button(intent: NextPageIntent()) {
-                    Image(systemName: "chevron.forward")
-                        .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.ink)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.white.opacity(0.12)))
+                    HStack(spacing: 5) {
+                        Text("\(page + 1)/\(total)").font(.qwNum(11, .bold)).foregroundStyle(Theme.ink)
+                        Image(systemName: "chevron.forward").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.ink)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Capsule().fill(UsageLevel.ok.color.opacity(0.22)))
+                    .overlay(Capsule().strokeBorder(UsageLevel.ok.color.opacity(0.5)))
                 }
                 .buttonStyle(.plain)
             }
