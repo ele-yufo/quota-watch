@@ -36,5 +36,6 @@ struct OverviewQuotaWidget: Widget {
         .configurationDisplayName("配额 · 概览")
         .description("多渠道一览，按紧张度排序；点 ▶ 翻页看更多。")
         .supportedFamilies([.systemMedium, .systemLarge])
+        .contentMarginsDisabled()
     }
 }

@@ -111,11 +111,11 @@ private struct PagedHeader: View {
             Spacer(minLength: 4)
             if total > 1 {
                 Button(intent: NextPageIntent()) {
-                    HStack(spacing: 5) {
-                        Text("\(page + 1)/\(total)").font(.qwNum(11, .bold)).foregroundStyle(Theme.ink)
-                        Image(systemName: "chevron.forward").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.ink)
+                    HStack(spacing: 4) {
+                        Text("\(page + 1)/\(total)").font(.qwNum(10.5, .bold)).foregroundStyle(Theme.ink)
+                        Image(systemName: "chevron.forward").font(.system(size: 9.5, weight: .bold)).foregroundStyle(Theme.ink)
                     }
-                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
                     .background(Capsule().fill(UsageLevel.ok.color.opacity(0.22)))
                     .overlay(Capsule().strokeBorder(UsageLevel.ok.color.opacity(0.5)))
                 }
@@ -194,19 +194,24 @@ struct OverviewWidgetView: View {
     let entry: QuotaEntry
 
     var body: some View {
-        let perPage = family == .systemLarge ? 7 : 4
+        // systemMedium fits ~3 two-line rows + header; more overflows and clips.
+        // systemLarge has room for 6 (with reset). Content margins are disabled
+        // on the widget (see bundle) so we control padding here.
+        let large = family == .systemLarge
+        let perPage = large ? 6 : 3
         Group {
             if entry.overviewRows.isEmpty {
                 WidgetEmptyView()
             } else {
                 let p = pagedSlice(entry.overviewRows, page: entry.page, perPage: perPage)
-                VStack(alignment: .leading, spacing: family == .systemLarge ? 11 : 8) {
+                VStack(alignment: .leading, spacing: large ? 10 : 7) {
                     PagedHeader(updated: entry.lastUpdated, stale: entry.isStale,
                                 count: entry.providers.count, page: p.page, total: p.total)
                     Rectangle().fill(Theme.hairline).frame(height: 1)
-                    ForEach(p.slice) { StatRow(item: $0, showReset: true) }
+                    ForEach(p.slice) { StatRow(item: $0, showReset: large) }
                     Spacer(minLength: 0)
                 }
+                .padding(large ? 15 : 12)
             }
         }
         .containerBackground(for: .widget) { WidgetBG() }
