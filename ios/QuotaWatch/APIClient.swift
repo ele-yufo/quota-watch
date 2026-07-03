@@ -26,8 +26,9 @@ struct APIClient {
     let host: String
     let port: Int
     let token: String?
-
-    private static let timeout: TimeInterval = 8
+    /// Per-request timeout. Widgets use a short one so a first render never sits
+    /// blank waiting on a slow/unreachable daemon.
+    var timeout: TimeInterval = 8
 
     private var baseURL: URL? {
         var components = URLComponents()
@@ -45,7 +46,7 @@ struct APIClient {
 
         var req = URLRequest(url: url)
         req.httpMethod = method
-        req.timeoutInterval = Self.timeout
+        req.timeoutInterval = timeout
         if let token, !token.isEmpty {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

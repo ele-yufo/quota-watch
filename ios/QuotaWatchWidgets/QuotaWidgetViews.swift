@@ -186,13 +186,10 @@ struct SmallWidgetView: View {
                 WidgetEmptyView()
             } else {
                 VStack(alignment: .leading, spacing: 9) {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Text(pinnedProvider?.displayName ?? "quota·watch")
-                            .font(pinnedProvider == nil ? .qwDisplay(14) : .qwLabel(13))
-                            .foregroundStyle(Theme.ink).lineLimit(1)
-                        Spacer(minLength: 3)
-                        Text(entry.displayMode.label).font(.qwLabel(8)).foregroundStyle(Theme.ink3)
-                    }
+                    Text(pinnedProvider?.displayName ?? "quota·watch")
+                        .font(pinnedProvider == nil ? .qwDisplay(12) : .qwLabel(12))
+                        .foregroundStyle(Theme.ink).lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Rectangle().fill(Theme.hairline).frame(height: 1)
                     ForEach(rows.prefix(3)) { StatRow(item: $0, mode: entry.displayMode, pinned: pinnedProvider != nil) }
                     if rows.count > 3 {
@@ -213,21 +210,25 @@ struct OverviewWidgetView: View {
     let entry: QuotaEntry
 
     var body: some View {
+        // Real brand fonts (Fraunces/JetBrains) are ~20% taller than system, so
+        // a systemMedium fits only ~2 two-line provider rows + header without
+        // clipping; systemLarge fits ~4. Verified with an ImageRenderer harness
+        // that registers the real fonts and draws the exact widget bounds.
         let large = family == .systemLarge
-        let perPage = large ? 5 : 3
+        let perPage = large ? 4 : 2
         let maxWindows = large ? 3 : 2
         Group {
             if entry.sortedProviders.isEmpty {
                 WidgetEmptyView()
             } else {
                 let p = pagedSlice(entry.sortedProviders, page: entry.page, perPage: perPage)
-                VStack(alignment: .leading, spacing: large ? 12 : 9) {
+                VStack(alignment: .leading, spacing: large ? 14 : 10) {
                     PagedHeader(mode: entry.displayMode, page: p.page, total: p.total)
                     Rectangle().fill(Theme.hairline).frame(height: 1)
                     ForEach(p.slice) { ProviderRow(provider: $0, mode: entry.displayMode, maxWindows: maxWindows) }
                     Spacer(minLength: 0)
                 }
-                .padding(large ? 15 : 12)
+                .padding(large ? 16 : 13)
             }
         }
         .containerBackground(for: .widget) { WidgetBG() }

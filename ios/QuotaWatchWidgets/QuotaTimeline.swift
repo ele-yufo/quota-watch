@@ -71,7 +71,7 @@ enum QuotaFetcher {
         if !host.isEmpty {
             let client = APIClient(
                 host: host, port: SharedStore.port,
-                token: SharedStore.token.isEmpty ? nil : SharedStore.token)
+                token: SharedStore.token.isEmpty ? nil : SharedStore.token, timeout: 5)
             if let providers = try? await client.quota() {
                 SharedStore.saveSnapshot(providers)
                 return QuotaEntry(
