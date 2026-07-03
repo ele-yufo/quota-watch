@@ -28,6 +28,14 @@ export {
   type QuotaApiProvider,
 } from './api-server.js';
 export {
+  startPairingSession,
+  activePairingSession,
+  cancelPairingSession,
+  claimPairingCode,
+  type PairingSessionInfo,
+  type ClaimResult,
+} from './pairing.js';
+export {
   resolveCliTokens,
   readClaudeCliCredentials,
   readCodexCliCredentials,

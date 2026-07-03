@@ -20,6 +20,24 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { QuotaDB } from "./db.js";
 import type { QuotaScheduler } from "./scheduler.js";
 import { sortWindowsByKind } from "./windows.js";
+import { startPairingSession, claimPairingCode } from "./pairing.js";
+
+/** Read and JSON-parse a request body (capped), null on empty/oversize/invalid. */
+async function readJsonBody(req: IncomingMessage, maxBytes = 4096): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > maxBytes) return null;
+    chunks.push(chunk as Buffer);
+  }
+  if (chunks.length === 0) return null;
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+  } catch {
+    return null;
+  }
+}
 
 export interface ApiServerOptions {
   db: QuotaDB;
@@ -98,12 +116,35 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      if (!authorize(req)) {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+      if (!authorize(req, url.pathname)) {
         sendJson(res, 401, { error: "unauthorized — send Authorization: Bearer <api token>" });
         return;
       }
 
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      // ── Pairing: claim a code → receive the token (the code is the credential,
+      // so this route is intentionally token-exempt; the session is short-lived,
+      // single-use and attempt-capped). ──
+      if (req.method === "POST" && url.pathname === "/pair/claim") {
+        const body = (await readJsonBody(req)) as { code?: unknown } | null;
+        const code = typeof body?.code === "string" ? body.code : "";
+        const result = claimPairingCode(code, token);
+        if (result.ok) {
+          sendJson(res, 200, { ok: true, token: result.token, port });
+        } else {
+          sendJson(res, 401, { ok: false, error: result.reason });
+        }
+        return;
+      }
+
+      // Start a pairing session (token-authed — only someone who already has
+      // access can begin pairing a new device). Returns the code + expiry.
+      if (req.method === "POST" && url.pathname === "/pair/start") {
+        const session = startPairingSession();
+        sendJson(res, 200, session);
+        return;
+      }
 
       if (req.method === "GET" && url.pathname === "/health") {
         const providers = db.listProviders().filter((p) => p.enabled);
@@ -141,9 +182,14 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
     }
   }
 
-  function authorize(req: IncomingMessage): boolean {
-    // A token gates EVERY request — do not trust loopback here. Behind an frp
-    // tunnel the daemon sees all traffic as coming from 127.0.0.1, so a
+  function authorize(req: IncomingMessage, pathname: string): boolean {
+    // Claiming a pairing code is how a device OBTAINS the token, so it cannot
+    // require the token. It is guarded instead by the short-lived, single-use,
+    // attempt-capped code (see pairing.ts).
+    if (req.method === "POST" && pathname === "/pair/claim") return true;
+
+    // A token gates EVERY other request — do not trust loopback here. Behind an
+    // frp tunnel the daemon sees all traffic as coming from 127.0.0.1, so a
     // loopback exemption would let the public internet through unauthenticated.
     // Local tools (web dashboard, CLI) send the token explicitly.
     if (token) {
