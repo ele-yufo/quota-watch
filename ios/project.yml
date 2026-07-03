@@ -20,9 +20,12 @@ targets:
     dependencies:
       # Embeds the widget extension into the app bundle.
       - target: QuotaWatchWidgets
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.quotawatch.app
+        PRODUCT_BUNDLE_IDENTIFIER: $(QW_APP_ID)
         INFOPLIST_FILE: QuotaWatch/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: QuotaWatch/QuotaWatch.entitlements
@@ -52,9 +55,12 @@ targets:
       # Bundled resources the widget needs (brand fonts + brand icons).
       - path: QuotaWatch/Fonts
       - path: QuotaWatch/Assets.xcassets
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.quotawatch.app.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: $(QW_APP_ID).widgets
         INFOPLIST_FILE: QuotaWatchWidgets/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: QuotaWatchWidgets/QuotaWatchWidgets.entitlements

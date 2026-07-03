@@ -52,10 +52,23 @@ xcodegen generate            # 由 project.yml 生成 QuotaWatch.xcodeproj
 open QuotaWatch.xcodeproj
 ```
 
+**签名（推荐用本地 xcconfig，regenerate 不丢）**：复制一份本地覆盖，不进 git：
+
+```bash
+cat > ios/Local.xcconfig <<'EOF'
+QW_APP_ID = com.yourname.quotawatch   # 你自己的唯一 Bundle ID 前缀
+DEVELOPMENT_TEAM = XXXXXXXXXX          # 你的 Apple 开发者 Team ID
+EOF
+```
+
+`Signing.xcconfig` 会 `#include?` 它；app = `$(QW_APP_ID)`，widget =
+`$(QW_APP_ID).widgets`。这样每次 `xcodegen generate` 后 Bundle ID / Team 都还在，
+不用反复在 Xcode GUI 里设。committed 的默认值是中立的 `io.quotawatch.app` + 无 Team。
+
 在 Xcode 里：
 
-1. 选中 `QuotaWatch` target → **Signing & Capabilities** 设置你的 Apple 开发者 Team
-   （或在 `project.yml` 里填 `DEVELOPMENT_TEAM`）。
+1. 若没用上面的 xcconfig，则选中 `QuotaWatch` target → **Signing & Capabilities**
+   设置你的 Apple 开发者 Team。
 2. 选真机或模拟器，⌘R 运行。
    - **真机**推荐：手机和 Mac 同网，才能连到 `192.168.x.x`。扫码需要相机（真机才有）。
    - 模拟器只能连 Mac 自身，主机填 `127.0.0.1` 即可（同机回环免 Token）；模拟器无相机，用手动填。

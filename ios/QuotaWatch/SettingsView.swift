@@ -9,6 +9,8 @@ struct SettingsView: View {
     @State private var testState: TestState = .idle
     @State private var showScanner = false
     @State private var scannedTick = 0
+    @State private var manualCode = ""
+    @State private var claiming = false
 
     private enum TestState: Equatable {
         case idle, testing
@@ -49,10 +51,7 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showScanner) {
             QRScannerView { payload in
-                model.applyPairing(payload)
-                scannedTick += 1
-                testState = .idle
-                Task { await runTest() }
+                handleScanned(payload)
             }
         }
         .sensoryFeedback(.success, trigger: scannedTick)
@@ -136,7 +135,7 @@ struct SettingsView: View {
         } header: {
             Text("配对")
         } footer: {
-            Text("在 Mac 上运行 `quota-watch connect --qr`，用「扫码配对」扫终端里的二维码，主机 / 端口 / Token 会自动填好。")
+            Text("在 Mac 菜单栏点 quota·watch →「配对」弹出二维码，用「扫码配对」一扫即连——Token 全程隐身，不用管。")
         }
     }
 
@@ -154,26 +153,51 @@ struct SettingsView: View {
     // ── Manual entry ────────────────────────────────────────────────────
 
     private func manualSection(model: Bindable<AppModel>) -> some View {
-        Section {
-            LabeledContent("主机") {
-                TextField("192.168.1.10", text: model.host)
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .keyboardType(.URL)
+        Group {
+            Section {
+                LabeledContent("主机") {
+                    TextField("192.168.1.10", text: model.host)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+                LabeledContent("端口") {
+                    TextField("3737", value: model.port, format: .number.grouping(.never))
+                        .multilineTextAlignment(.trailing).keyboardType(.numberPad)
+                }
+                LabeledContent("配对码") {
+                    TextField("6 位数字", text: $manualCode)
+                        .multilineTextAlignment(.trailing).keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                }
+                Button {
+                    claimManualCode()
+                } label: {
+                    HStack {
+                        Label("用配对码连接", systemImage: "key.horizontal")
+                        Spacer()
+                        if claiming { ProgressView() }
+                    }
+                }
+                .disabled(model.wrappedValue.host.trimmingCharacters(in: .whitespaces).isEmpty
+                          || manualCode.count < 6 || claiming)
+            } header: {
+                Text("手动配对")
+            } footer: {
+                Text("在 Mac 菜单栏点「配对」，把地址和 6 位配对码填在这里——和扫码等效。")
             }
-            LabeledContent("端口") {
-                TextField("3737", value: model.port, format: .number.grouping(.never))
-                    .multilineTextAlignment(.trailing).keyboardType(.numberPad)
+
+            Section {
+                DisclosureGroup("高级：直接填 Token") {
+                    LabeledContent("Token") {
+                        SecureField("可选", text: model.token)
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
+                }
+            } footer: {
+                Text("一般用不到。仅当你已有 API Token（如 `quota-watch connect` 打印的）时手动填。")
             }
-            LabeledContent("Token") {
-                SecureField("可选", text: model.token)
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-            }
-        } header: {
-            Text("手动填写")
-        } footer: {
-            Text("`quota-watch connect` 会打印这三项。回环 / 同机免 Token；局域网或公网需要 Token。")
         }
     }
 
@@ -194,10 +218,10 @@ struct SettingsView: View {
         Section("如何连接？") {
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 12) {
-                    StepRow(n: 1, text: "在 Mac 上开启局域网采集：", code: "quota-watch daemon start --lan")
-                    StepRow(n: 2, text: "生成配对二维码：", code: "quota-watch connect --qr")
-                    StepRow(n: 3, text: "点上面的「扫码配对」，扫终端里那张二维码。", code: nil)
-                    StepRow(n: 4, text: "确保手机和 Mac 在同一个 Wi-Fi。", code: nil)
+                    StepRow(n: 1, text: "在 Mac 上启动采集 daemon（状态栏 app 或命令行）。", code: "quota-watch daemon start --lan")
+                    StepRow(n: 2, text: "点 Mac 菜单栏的 quota·watch →「配对」，弹出二维码 + 6 位配对码。", code: nil)
+                    StepRow(n: 3, text: "点上面的「扫码配对」扫它，或在「手动配对」填地址 + 配对码。", code: nil)
+                    StepRow(n: 4, text: "确保手机和 Mac 在同一个 Wi-Fi（或已配好隧道）。", code: nil)
                 }
                 .padding(.vertical, 4)
             } label: {
@@ -250,6 +274,43 @@ struct SettingsView: View {
             await model.refresh()
         case let .failure(error):
             testState = .failure(error.errorDescription ?? "失败")
+        }
+    }
+
+    /// A scanned QR: claim its short-lived code (menu-bar flow) or, for a legacy
+    /// token QR, store the token directly. Then test the connection.
+    private func handleScanned(_ payload: PairingPayload) {
+        Task {
+            if let code = payload.code {
+                testState = .testing
+                if let err = await model.applyPairingCode(host: payload.host, port: payload.port, code: code) {
+                    testState = .failure(err)
+                } else {
+                    scannedTick += 1
+                    await runTest()
+                }
+            } else {
+                model.applyPairing(payload)
+                scannedTick += 1
+                testState = .idle
+                await runTest()
+            }
+        }
+    }
+
+    /// Manual pairing-code entry → claim → test.
+    private func claimManualCode() {
+        Task {
+            claiming = true
+            defer { claiming = false }
+            testState = .testing
+            if let err = await model.applyPairingCode(host: model.host, port: model.port, code: manualCode) {
+                testState = .failure(err)
+            } else {
+                manualCode = ""
+                scannedTick += 1
+                await runTest()
+            }
         }
     }
 }

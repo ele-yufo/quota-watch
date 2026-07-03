@@ -1,0 +1,15 @@
+// Signing / bundle-id config (committed, neutral defaults).
+//
+// The app bundle id is io.quotawatch.app by default. To build under YOUR Apple
+// account, create a gitignored ios/Local.xcconfig overriding these — it is
+// #include?'d below (optional include: absent = defaults apply):
+//
+//   QW_APP_ID = com.yourname.quotawatch
+//   DEVELOPMENT_TEAM = XXXXXXXXXX
+//
+// The widget bundle id is derived as $(QW_APP_ID).widgets. Regenerating the
+// Xcode project (xcodegen) preserves all of this, so signing never gets wiped.
+
+QW_APP_ID = io.quotawatch.app
+
+#include? "Local.xcconfig"

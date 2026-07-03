@@ -94,4 +94,16 @@ struct APIClient {
         let result = try await send(try request(path: "/poll", method: "POST"), as: PollResult.self)
         return result.ok
     }
+
+    /// POST /pair/claim — exchange a short-lived pairing code for the API token.
+    /// No token is sent (the code is the credential); a wrong/expired code comes
+    /// back 401 → `.unauthorized`.
+    func claimPairingCode(_ code: String) async throws -> String? {
+        struct ClaimResult: Decodable { let ok: Bool; let token: String? }
+        var req = try request(path: "/pair/claim", method: "POST")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
+        let result = try await send(req, as: ClaimResult.self)
+        return result.token
+    }
 }

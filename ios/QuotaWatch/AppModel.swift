@@ -131,6 +131,29 @@ final class AppModel {
         token = payload.token ?? ""
     }
 
+    /// Exchange a short-lived pairing code for the token (POST /pair/claim), then
+    /// store the connection. The token never has to be seen or typed. Returns nil
+    /// on success, or a user-facing error message.
+    @MainActor
+    func applyPairingCode(host: String, port: Int, code: String) async -> String? {
+        let client = APIClient(host: host, port: port, token: nil)
+        do {
+            let claimed = try await client.claimPairingCode(code)
+            demoMode = false
+            self.host = host
+            self.port = port
+            self.token = claimed ?? ""
+            return nil
+        } catch let error as APIError {
+            if case .unauthorized = error {
+                return "配对码无效或已过期 — 在 Mac 菜单栏点「配对」重新生成"
+            }
+            return error.errorDescription ?? "配对失败"
+        } catch {
+            return "配对失败：\(error.localizedDescription)"
+        }
+    }
+
     // ── Data loading ────────────────────────────────────────────────────
 
     /// Fetch quota once; keeps prior data on failure and records the error.

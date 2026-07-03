@@ -27,3 +27,5 @@ frpc.toml
 **/frpc.toml
 # iOS build products (xcodebuild output dir)
 ios/build/
+# iOS local signing override (team id + personal bundle id)
+ios/Local.xcconfig

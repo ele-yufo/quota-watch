@@ -1,11 +1,15 @@
 import Foundation
 
-/// A parsed `qw://pair?host=..&port=..&token=..` pairing URL (from the desktop
-/// `quota-watch connect --qr` QR code).
+/// A parsed `qw://pair?host=..&port=..&[code=..|token=..]` pairing URL.
+/// The menu-bar QR carries a short-lived `code` (exchanged for the token via
+/// /pair/claim so the token is never shown); the legacy CLI QR carries `token`.
 struct PairingPayload: Equatable {
     let host: String
     let port: Int
     let token: String?
+    /// Short-lived pairing code — present on the menu-bar QR, exchanged for the
+    /// token. When set, the app should claim it rather than store it directly.
+    let code: String?
 
     /// Parse a scanned string. Accepts the `qw://pair` scheme; returns nil for
     /// anything else so the scanner keeps looking.
@@ -28,6 +32,8 @@ struct PairingPayload: Equatable {
         self.port = port
         let token = value("token")
         self.token = (token?.isEmpty ?? true) ? nil : token
+        let code = value("code")
+        self.code = (code?.isEmpty ?? true) ? nil : code
     }
 }
 
