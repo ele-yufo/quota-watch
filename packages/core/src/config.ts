@@ -52,6 +52,11 @@ export function defaultConfigPath(): string {
   return join(homedir(), ".quota-watch", "config.json");
 }
 
+/** Directory holding the daemon's TLS material (CA + server cert + key). */
+export function defaultCertsDir(): string {
+  return join(homedir(), ".quota-watch", "certs");
+}
+
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }

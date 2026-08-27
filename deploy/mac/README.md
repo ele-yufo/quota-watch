@@ -5,9 +5,22 @@
 
 | Label | 作用 | 端口 |
 |---|---|---|
-| `io.quotawatch.daemon` | 采集 daemon + HTTP API(iOS 配对/取数、web、菜单栏都读它) | `3737` |
+| `io.quotawatch.daemon` | 采集 daemon + **HTTPS** API(iOS 配对/取数、web、菜单栏都读它) | `3737` |
 | `io.quotawatch.web` | Next.js 仪表盘 | `3000` |
 | `io.quotawatch.frpc` | frp 隧道,把上面两个映射到你的云服务器(公网访问) | — |
+
+## TLS(自签 CA + 指纹 pin)
+
+daemon 首次启动会在 `~/.quota-watch/certs/` 用系统 `/usr/bin/openssl` 生成:
+本地 CA(EC P-256,10 年)+ 服务器证书(EC P-256,3 年)。API **只走 HTTPS**,
+没有明文回退。
+
+- 所有客户端(CLI / web / macOS 菜单栏 / iOS)都通过 **CA 指纹**信任这条链,
+  不装 CA 到系统钥匙串
+- 配对时 `/pair/start` 和 `/pair/claim` 把 CA 指纹带给 iPhone,QR 里也带
+  `fp=` 参数——iPhone 从**第一个请求**起就 pin 证书,不存在首次信任窗口
+- **轮换证书**:删掉 `~/.quota-watch/certs/` 后重启 daemon 会重新生成;
+  已配对的 iPhone 会因指纹不匹配报「证书已更换,请重新配对」,重新扫码即可
 
 ## 安装
 
@@ -40,9 +53,9 @@ chmod 600 ~/.quota-watch/frpc.toml   # 内含密钥
 那个 `[[proxies]]` 块——web 无鉴权,暴露即等于公开你的配额视图)。
 
 > **注意**:`~/.quota-watch/frpc.toml` 含 frps token,**不入 git**(仓库里只有
-> `.example` 占位)。frpc↔frps 这一跳在 frp 0.52+ 默认 TLS 加密;但手机→frps
-> 的公网那一跳是明文 HTTP,靠 daemon 的 Bearer token 兜底。要端到端加密就给
-> frps 配一个带 TLS 的域名。
+> `.example` 占位)。frpc↔frps 这一跳在 frp 0.52+ 默认 TLS 加密;手机→frps
+> 的公网那一跳也已是 TLS(daemon 全链路 HTTPS + CA 指纹 pin),Bearer token
+> 仍作为第二道访问控制。
 
 ## 配对 iOS(公网)
 
@@ -50,10 +63,11 @@ frpc 起来后,用**云服务器的公网地址**生成配对二维码:
 
 ```bash
 node packages/cli/dist/index.js connect --qr --host <你的云服务器域名或IP>
-# Host=<云服务器地址>  Port=3737  Token=<config.json 里的 api.token>
+# Host=<云服务器地址>  Port=3737  Code=<6 位配对码>(QR 里带 CA 指纹)
 ```
 
-手机端 App「扫码配对」即可通过公网读取配额。
+手机端 App「扫码配对」即可通过公网读取配额。Token 不再出现在配对输出里——
+CLI 通过 `/pair/start` 拿 6 位短码,手机用短码换 token。
 
 ## 管理
 
@@ -61,8 +75,16 @@ node packages/cli/dist/index.js connect --qr --host <你的云服务器域名或
 launchctl list | grep quotawatch                       # 看状态(PID / 上次退出码)
 launchctl kickstart -k gui/$(id -u)/io.quotawatch.daemon   # 重启 daemon
 launchctl bootout   gui/$(id -u)/io.quotawatch.web         # 停 web
-tail -f ~/.quota-watch/daemon.log                      # 应用日志
-tail -f ~/.quota-watch/daemon.launchd.log              # launchd 级启动错误
+tail -f ~/.quota-watch/daemon.log                      # 应用日志(自动轮转 10MB×3)
+tail -f ~/.quota-watch/daemon.stderr.log               # launchd 级启动错误
+```
+
+健康检查(严格校验自签 CA):
+
+```bash
+curl --cacert ~/.quota-watch/certs/ca.crt \
+  -H "Authorization: Bearer <config.json 里的 api.token>" \
+  https://127.0.0.1:3737/health
 ```
 
 ## 卸载

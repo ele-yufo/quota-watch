@@ -20,8 +20,9 @@ auth.token  = "YOUR_FRPS_TOKEN"   # must match frps.toml  auth.token
 
 # frpc <-> frps transport is TLS-encrypted by default in frp 0.52+
 # (transport.tls.enable = true). The public leg (phone -> frps remotePort) is
-# still plain HTTP — the daemon's Bearer token guards it, but prefer a domain
-# with TLS termination if you want the token encrypted end to end.
+# also encrypted: the daemon API is HTTPS with a local CA, and the iOS app
+# pins that CA's fingerprint from pairing — the Bearer token stays a second
+# layer of access control.
 
 # ── daemon API : iOS pairing + quota reads (REQUIRED) ─────────────────────
 [[proxies]]
@@ -29,7 +30,7 @@ name       = "quota-daemon"
 type       = "tcp"
 localIP    = "127.0.0.1"
 localPort  = 3737
-remotePort = 3737                 # phone dials  http://YOUR_SERVER:3737
+remotePort = 3737                 # phone dials  https://YOUR_SERVER:3737
 
 # ── web dashboard (OPTIONAL — delete this block to keep the web local) ────
 # The web dashboard has NO auth; exposing it makes your quota view public to

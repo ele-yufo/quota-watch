@@ -1,4 +1,5 @@
 import { loadAppConfig } from '@quota-watch/core';
+import { fetchDaemon } from '@/lib/daemon-fetch';
 
 /**
  * GET /api/daemon — daemon liveness for the dashboard. Proxies the daemon's
@@ -7,18 +8,10 @@ import { loadAppConfig } from '@quota-watch/core';
  */
 export async function GET() {
   const config = loadAppConfig();
-  try {
-    const res = await fetch(`http://127.0.0.1:${config.api.port}/health`, {
-      headers: config.api.token ? { Authorization: `Bearer ${config.api.token}` } : undefined,
-      signal: AbortSignal.timeout(2000),
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      return Response.json({ running: false, error: `health returned ${res.status}` });
-    }
-    const health = await res.json();
-    return Response.json({ running: true, ...health });
-  } catch {
-    return Response.json({ running: false });
+  const res = await fetchDaemon(config.api.port, '/health', { token: config.api.token, timeoutMs: 2000 });
+  if (!res.ok) {
+    return Response.json({ running: false, error: `health returned ${res.status}` });
   }
+  const health = await res.json();
+  return Response.json({ running: true, ...(health ?? {}) });
 }

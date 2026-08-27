@@ -22,7 +22,8 @@ export type ClaimResult =
 
 /** How long a code stays valid, and how many wrong guesses kill the session. */
 const CODE_TTL_MS = 5 * 60_000;
-const MAX_ATTEMPTS = 8;
+/** Wrong guesses allowed before the session is killed (the 9th guess is rejected). */
+const MAX_WRONG_ATTEMPTS = 8;
 
 let current: { code: string; expiresAt: number; attempts: number } | null = null;
 
@@ -33,13 +34,10 @@ export function startPairingSession(now: number = Date.now()): PairingSessionInf
   return { code, expiresAt: current.expiresAt };
 }
 
-/** The active session if one is live, else null (also clears an expired one). */
+/** The active session if one is live, else null. Pure read — expiry is
+ *  enforced by claimPairingCode (which clears the session), not by reading. */
 export function activePairingSession(now: number = Date.now()): PairingSessionInfo | null {
-  if (!current) return null;
-  if (now > current.expiresAt) {
-    current = null;
-    return null;
-  }
+  if (!current || now > current.expiresAt) return null;
   return { code: current.code, expiresAt: current.expiresAt };
 }
 
@@ -62,7 +60,7 @@ export function claimPairingCode(
     current = null;
     return { ok: false, reason: "code expired" };
   }
-  if (current.attempts >= MAX_ATTEMPTS) {
+  if (current.attempts >= MAX_WRONG_ATTEMPTS) {
     current = null;
     return { ok: false, reason: "too many attempts" };
   }

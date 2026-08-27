@@ -1,8 +1,11 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import QRCode from 'qrcode';
+import https from 'node:https';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { networkInterfaces } from 'node:os';
-import { loadAppConfig, isLoopbackHost } from '@quota-watch/core';
+import { loadAppConfig, isLoopbackHost, defaultCertsDir } from '@quota-watch/core';
 
 /** Non-internal IPv4 addresses of this machine, for LAN pairing. */
 function lanAddresses(): string[] {
@@ -15,25 +18,80 @@ function lanAddresses(): string[] {
   return result;
 }
 
-async function daemonApiReachable(port: number, token: string | null): Promise<boolean> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      signal: AbortSignal.timeout(2000),
+/** PEM CA from the daemon's cert dir — the trust anchor for all CLI calls. */
+function daemonCa(): string {
+  return readFileSync(join(defaultCertsDir(), 'ca.crt'), 'utf-8');
+}
+
+function httpsJson(
+  port: number,
+  token: string | null,
+  path: string,
+  method: 'GET' | 'POST',
+  ca: string,
+): Promise<unknown> {
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path,
+        method,
+        ca,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        timeout: 3000,
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
     });
-    return res.ok;
-  } catch {
-    return false;
-  }
+    req.end();
+  });
+}
+
+async function daemonApiReachable(port: number, token: string | null, ca: string): Promise<boolean> {
+  const body = await httpsJson(port, token, '/health', 'GET', ca);
+  return body !== null;
 }
 
 /**
- * The pairing payload the iOS app scans. Custom scheme keeps it compact and
- * unambiguous; the app parses host/port/token from the query.
+ * Start a pairing session (POST /pair/start) — returns its 6-digit code and
+ * the daemon CA fingerprint. The code is short-lived and single-use; the QR
+ * carries the fingerprint so the phone can pin TLS before claiming.
  */
-function pairingURL(host: string, port: number, token: string | null): string {
-  const params = new URLSearchParams({ host, port: String(port) });
-  if (token) params.set('token', token);
+async function startPairingSession(
+  port: number,
+  token: string | null,
+  ca: string,
+): Promise<{ code: string; caFingerprint?: string } | null> {
+  const body = (await httpsJson(port, token, '/pair/start', 'POST', ca)) as
+    | { code?: string; caFingerprint?: string }
+    | null;
+  if (typeof body?.code !== 'string' || !body.code) return null;
+  return { code: body.code, caFingerprint: body.caFingerprint };
+}
+
+/**
+ * The pairing payload the iOS app scans: host/port + a 6-digit code (+ the CA
+ * fingerprint for TLS pinning). The app exchanges the code for the token over
+ * the daemon's HTTPS API — the token itself never travels in the QR.
+ */
+function pairingURL(host: string, port: number, code: string, caFingerprint?: string): string {
+  const params = new URLSearchParams({ host, port: String(port), code });
+  if (caFingerprint) params.set('fp', caFingerprint);
   return `qw://pair?${params.toString()}`;
 }
 
@@ -52,10 +110,11 @@ interface ConnectOptions {
 async function runConnect(options: ConnectOptions): Promise<void> {
   const config = loadAppConfig();
   const { host: boundHost, port, token } = config.api;
+  const ca = daemonCa();
 
   console.log(chalk.bold('\nquota-watch device pairing\n'));
 
-  const running = await daemonApiReachable(port, token);
+  const running = await daemonApiReachable(port, token, ca);
   if (!running) {
     console.log(chalk.yellow('⚠ Daemon API is not reachable on this machine.'));
     console.log(chalk.dim('  Start it first: quota-watch daemon start --lan\n'));
@@ -97,7 +156,12 @@ async function runConnect(options: ConnectOptions): Promise<void> {
   const isPublic = Boolean(options.host) && !isPrivateHost(options.host!);
 
   if (options.qr) {
-    const url = pairingURL(pairHost, pairPort, token);
+    const session = await startPairingSession(port, token, ca);
+    if (!session) {
+      console.log(chalk.yellow('⚠ Could not start a pairing session — is the daemon API up?'));
+      return;
+    }
+    const url = pairingURL(pairHost, pairPort, session.code, session.caFingerprint);
     const qr = await QRCode.toString(url, { type: 'terminal', small: true });
     console.log('Scan this in the iOS app (tap "扫码配对"):\n');
     console.log(qr);
@@ -107,7 +171,7 @@ async function runConnect(options: ConnectOptions): Promise<void> {
   console.log('Or enter manually in the iOS app:');
   console.log(`  ${chalk.bold('Host')}   ${pairHost}`);
   console.log(`  ${chalk.bold('Port')}   ${pairPort}`);
-  console.log(`  ${chalk.bold('Token')}  ${token}`);
+  console.log(`  ${chalk.bold('Code')}   ${chalk.bold('在 Mac 菜单栏点「配对」取 6 位码')}`);
   if (lan.length > 1 && !options.host) {
     console.log(
       chalk.dim(`\n  (other LAN addresses: ${lan.slice(1).join(', ')} — pick the one your phone can reach)`),
@@ -117,18 +181,18 @@ async function runConnect(options: ConnectOptions): Promise<void> {
   if (isPublic) {
     console.log(
       chalk.yellow(
-        '\n⚠ Public host: plain-HTTP over the internet exposes the token in cleartext.',
+        '\n⚠ Public host: traffic is encrypted (TLS + CA pin), but prefer a tunnel',
       ),
     );
     console.log(
       chalk.dim(
-        '  Prefer a tunnel (Tailscale / Cloudflare Tunnel / WireGuard) over a raw port-forward.',
+        '  (Tailscale / Cloudflare Tunnel / WireGuard) over a raw port-forward.',
       ),
     );
   }
 
   console.log(chalk.dim('\n  Both devices must reach this host:port. Verify from the phone browser:'));
-  console.log(chalk.dim(`  http://${pairHost}:${pairPort}/health  (send Authorization: Bearer <token>)\n`));
+  console.log(chalk.dim(`  https://${pairHost}:${pairPort}/health  (send Authorization: Bearer <token>)\n`));
 }
 
 /** RFC1918 private / loopback / .local — "safe" cleartext hosts. */
@@ -147,7 +211,7 @@ function isPrivateHost(host: string): boolean {
 export function registerConnectCommand(program: Command): void {
   program
     .command('connect')
-    .description('Show host/port/token (and optional QR) for pairing the iOS app')
+    .description('Show host/port/code (and optional QR) for pairing the iOS app')
     .option('--qr', 'print a scannable QR code for pairing')
     .option('--host <address>', 'host to encode for pairing (public IP/domain); defaults to LAN IP')
     .option('--port <port>', 'port to encode for pairing (e.g. an frp remote port); defaults to the local API port')

@@ -16,6 +16,7 @@ export {
   ensureApiToken,
   isLoopbackHost,
   defaultConfigPath,
+  defaultCertsDir,
   DEFAULT_APP_CONFIG,
   type AppConfig,
   type PollConfig,
@@ -53,3 +54,4 @@ export {
   type AuthKind,
   type CredentialField,
 } from './auth/provider-meta.js';
+export { ensureTlsConfig, readCaPem, type TlsConfig } from './certs.js';

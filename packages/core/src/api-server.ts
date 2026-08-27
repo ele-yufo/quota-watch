@@ -16,7 +16,9 @@
  * When no token is set (loopback-only deployment, host stays 127.0.0.1),
  * local clients are allowed and everything else is refused.
  */
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, type Server } from "node:https";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
 import type { QuotaDB } from "./db.js";
 import type { QuotaScheduler } from "./scheduler.js";
 import { sortWindowsByKind } from "./windows.js";
@@ -47,6 +49,13 @@ export interface ApiServerOptions {
   token: string | null;
   /** app version reported by /health */
   version?: string;
+  /**
+   * TLS material. Required — the API is HTTPS-only, there is no plaintext
+   * fallback. `createServer` throws if the files are unreadable.
+   */
+  tls: { certPath: string; keyPath: string };
+  /** CA SHA-256 fingerprint, handed out via /pair/claim so clients can pin. */
+  caFingerprint?: string;
 }
 
 export interface QuotaApiProvider {
@@ -110,9 +119,15 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
   const { db, scheduler, host, port, token } = options;
   const startedAt = new Date().toISOString();
 
-  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    void handle(req, res);
-  });
+  const server = createServer(
+    {
+      cert: readFileSync(options.tls.certPath),
+      key: readFileSync(options.tls.keyPath),
+    },
+    (req: IncomingMessage, res: ServerResponse) => {
+      void handle(req, res);
+    },
+  );
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
@@ -131,7 +146,13 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
         const code = typeof body?.code === "string" ? body.code : "";
         const result = claimPairingCode(code, token);
         if (result.ok) {
-          sendJson(res, 200, { ok: true, token: result.token, port });
+          sendJson(res, 200, {
+            ok: true,
+            token: result.token,
+            port,
+            // The one channel a fresh device can learn the CA pin from.
+            caFingerprint: options.caFingerprint,
+          });
         } else {
           sendJson(res, 401, { ok: false, error: result.reason });
         }
@@ -139,10 +160,12 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
       }
 
       // Start a pairing session (token-authed — only someone who already has
-      // access can begin pairing a new device). Returns the code + expiry.
+      // access can begin pairing a new device). Returns the code + expiry, and
+      // the CA fingerprint so the pairing client can pin from the very first
+      // request instead of trusting-on-first-use.
       if (req.method === "POST" && url.pathname === "/pair/start") {
         const session = startPairingSession();
-        sendJson(res, 200, session);
+        sendJson(res, 200, { ...session, caFingerprint: options.caFingerprint });
         return;
       }
 
