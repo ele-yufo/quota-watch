@@ -9,6 +9,9 @@ export interface SchedulerConfig {
   registry: ProviderRegistry;
   db: QuotaDB;
   onQuotaFetched?: (providerId: string, quota: ProviderQuota) => void;
+  /** Poll threw (auth expired, network down, bad credentials…). Without this
+   *  hook failures vanish silently and the UI shows "等待采集" forever. */
+  onPollError?: (providerId: string, error: unknown) => void;
   baseIntervalMs?: number;   // default 15_000
   activeIntervalMs?: number; // default 10_000 (usage moving)
   idleIntervalMs?: number;   // default 60_000 (3+ unchanged polls)
@@ -47,6 +50,7 @@ export class QuotaScheduler {
       registry: config.registry,
       db: config.db,
       onQuotaFetched: config.onQuotaFetched,
+      onPollError: config.onPollError,
       baseIntervalMs: config.baseIntervalMs ?? DEFAULT_BASE_MS,
       activeIntervalMs: config.activeIntervalMs ?? DEFAULT_ACTIVE_MS,
       idleIntervalMs: config.idleIntervalMs ?? DEFAULT_IDLE_MS,
@@ -137,8 +141,17 @@ export class QuotaScheduler {
     let quota: ProviderQuota;
     try {
       quota = await fetchWithRefresh(providerConfig, adapter);
-    } catch {
-      // On fetch error, don't update tracking state
+    } catch (err) {
+      // On fetch error, don't update tracking state — but DO surface it,
+      // otherwise a broken credential reads as "等待采集" indefinitely.
+      this.config.onPollError?.(providerId, err);
+      return;
+    }
+
+    // Providers report failures as an envelope (status + error), not a throw —
+    // surface those too, otherwise "token=test" reads as "等待采集" forever.
+    if (quota.status !== 'ok') {
+      this.config.onPollError?.(providerId, new Error(quota.error ?? quota.status));
       return;
     }
 

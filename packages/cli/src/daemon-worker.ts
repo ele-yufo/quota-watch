@@ -143,6 +143,18 @@ async function main(): Promise<void> {
         log('ERROR', `Alert evaluation failed for ${providerId}: ${err}`);
       }
     },
+    // Poll failures were swallowed silently by the scheduler — log them
+    // (throttled 5 min per provider so a hot 10s loop can't flood the log).
+    onPollError: (() => {
+      const lastLogged = new Map<string, number>();
+      return (providerId: string, err: unknown) => {
+        const now = Date.now();
+        if (now - (lastLogged.get(providerId) ?? 0) < 300_000) return;
+        lastLogged.set(providerId, now);
+        const msg = err instanceof Error ? err.message : String(err);
+        log('ERROR', `[${providerId}] poll failed: ${msg}`);
+      };
+    })(),
   });
 
   scheduler.start();
