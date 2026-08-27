@@ -42,13 +42,32 @@ struct PairingView: View {
                     .kerning(6)
                     .foregroundStyle(.primary)
 
-                Text("iPhone 上点「配对设备」扫码，或手动输入：")
+                Text("手机 App 里扫码，或手动输入：")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
                 VStack(spacing: 3) {
                     labelRow("地址", "\(model.host):\(model.port)")
                     labelRow("配对码", model.code ?? "")
+                    if !model.caFingerprint.isEmpty {
+                        HStack(alignment: .top) {
+                            Text("指纹").font(.caption2).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(grouped(model.caFingerprint))
+                                .font(.system(size: 9, design: .monospaced))
+                                .multilineTextAlignment(.trailing)
+                                .textSelection(.enabled)
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(model.caFingerprint, forType: .string)
+                            } label: {
+                                Image(systemName: "doc.on.doc").font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("复制指纹")
+                        }
+                    }
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity)
@@ -75,6 +94,23 @@ struct PairingView: View {
             Text(label).font(.caption2).foregroundStyle(.secondary)
             Spacer()
             Text(value).font(.caption.monospaced())
+        }
+    }
+
+    /// 64-hex fingerprint as two lines of 4×8 groups — typable, selectable.
+    private func grouped(_ fp: String) -> String {
+        let groups = stride(from: 0, to: fp.count, by: 8).map {
+            String(fp.dropFirst($0).prefix(8))
+        }
+        return groups.chunked(into: 4).map { $0.joined(separator: " ") }
+            .joined(separator: "\n")
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
         }
     }
 }

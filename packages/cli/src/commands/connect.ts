@@ -161,23 +161,36 @@ async function runConnect(options: ConnectOptions): Promise<void> {
 
   const isPublic = Boolean(options.host) && !isPrivateHost(options.host!);
 
+  // One pairing session serves both the QR and the manual printout. Note:
+  // pairing.ts keeps a single global session — re-running connect (or opening
+  // the menu-bar pairing panel) invalidates any previously shown code.
+  const session = await startPairingSession(port, token, ca);
+  if (!session) {
+    console.log(chalk.yellow('⚠ Could not start a pairing session — is the daemon API up?'));
+    return;
+  }
+
   if (options.qr) {
-    const session = await startPairingSession(port, token, ca);
-    if (!session) {
-      console.log(chalk.yellow('⚠ Could not start a pairing session — is the daemon API up?'));
-      return;
-    }
     const url = pairingURL(pairHost, pairPort, session.code, session.caFingerprint);
     const qr = await QRCode.toString(url, { type: 'terminal', small: true });
-    console.log('Scan this in the iOS app (tap "扫码配对"):\n');
+    console.log('Scan this in the phone app (tap "扫码配对"):\n');
     console.log(qr);
     console.log(chalk.dim(`  payload: ${url}\n`));
   }
 
-  console.log('Or enter manually in the iOS app:');
+  console.log('Or enter manually in the phone app:');
   console.log(`  ${chalk.bold('Host')}   ${pairHost}`);
   console.log(`  ${chalk.bold('Port')}   ${pairPort}`);
-  console.log(`  ${chalk.bold('Code')}   ${chalk.bold('在 Mac 菜单栏点「配对」取 6 位码')}`);
+  console.log(`  ${chalk.bold('Code')}   ${chalk.bold(session.code)}`);
+  if (session.caFingerprint) {
+    console.log(`  ${chalk.bold('指纹')}   ${groupFingerprint(session.caFingerprint)}`);
+  }
+  console.log(
+    chalk.dim('  (code valid 5 min, single-use; re-running connect or opening the menu-bar'),
+  );
+  console.log(
+    chalk.dim('   pairing panel invalidates this code — use the newest one)'),
+  );
   if (lan.length > 1 && !options.host) {
     console.log(
       chalk.dim(`\n  (other LAN addresses: ${lan.slice(1).join(', ')} — pick the one your phone can reach)`),
@@ -201,6 +214,11 @@ async function runConnect(options: ConnectOptions): Promise<void> {
   console.log(chalk.dim(`  https://${pairHost}:${pairPort}/health  (send Authorization: Bearer <token>)\n`));
 }
 
+/** 64-hex fingerprint rendered as 8 groups of 8 for manual typing. */
+function groupFingerprint(fp: string): string {
+  return fp.replace(/(.{8})(?=.)/g, '$1 ');
+}
+
 /** RFC1918 private / loopback / .local — "safe" cleartext hosts. */
 function isPrivateHost(host: string): boolean {
   if (isLoopbackHost(host)) return true;
@@ -217,7 +235,7 @@ function isPrivateHost(host: string): boolean {
 export function registerConnectCommand(program: Command): void {
   program
     .command('connect')
-    .description('Show host/port/code (and optional QR) for pairing the iOS app')
+    .description('Show host/port/code/fingerprint (and optional QR) for pairing the phone app')
     .option('--qr', 'print a scannable QR code for pairing')
     .option('--host <address>', 'host to encode for pairing (public IP/domain); defaults to LAN IP')
     .option('--port <port>', 'port to encode for pairing (e.g. an frp remote port); defaults to the local API port')

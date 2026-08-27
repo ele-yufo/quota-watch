@@ -17,6 +17,9 @@ final class PairingModel: ObservableObject {
     @Published var secondsLeft = 0
     @Published var error: String?
     @Published var isLoading = false
+    /// CA fingerprint from /pair/start — shown for manual entry (the QR carries
+    /// it too, but a manually-pairing phone must type it to pin TLS).
+    @Published var caFingerprint = ""
 
     private var timer: Timer?
     private var expiresAt: Date?
@@ -84,6 +87,7 @@ final class PairingModel: ObservableObject {
             // claiming the code (never trusting-on-first-use).
             var payload = "qw://pair?host=\(host)&port=\(port)&code=\(code)"
             if let fp = json["caFingerprint"] as? String, !fp.isEmpty {
+                caFingerprint = fp
                 payload += "&fp=\(fp)"
             }
             qrImage = makeQR(payload)
