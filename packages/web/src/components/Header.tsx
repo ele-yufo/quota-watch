@@ -24,26 +24,24 @@ export function Header({ cards, daemon, updatedAt }: HeaderProps) {
   ).length;
 
   return (
-    <header className="flex items-baseline justify-between pb-3 mb-4 border-b-[3px] border-ink">
-      <div className="flex items-baseline gap-4">
-        <h1 className="font-serif font-semibold text-[26px] leading-none tracking-[-0.02em] text-ink">
-          quota<span className="text-vermillion">·</span>watch
-        </h1>
-        {daemon !== null && (
-          <span
-            className="font-mono text-[10px] tracking-[0.12em] uppercase"
-            title={daemon.running ? `daemon pid ${daemon.pid}` : "daemon not running"}
-          >
-            <span className={daemon.running ? "text-ink-3" : "text-vermillion"}>
-              ●{" "}{daemon.running ? "live" : "offline"}
-            </span>
-            {updatedAt !== null && daemon.running && (
-              <span className="text-ink-4"> · {ago(updatedAt)} ago</span>
-            )}
+    <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pb-3 mb-4 border-b-[3px] border-ink">
+      <h1 className="font-serif font-semibold text-[26px] leading-none tracking-[-0.02em] text-ink">
+        quota<span className="text-vermillion">·</span>watch
+      </h1>
+      {daemon !== null && (
+        <span
+          className="font-mono text-[10px] tracking-[0.12em] uppercase whitespace-nowrap"
+          title={daemon.running ? `daemon pid ${daemon.pid}` : "daemon not running"}
+        >
+          <span className={daemon.running ? "text-ink-3" : "text-vermillion"}>
+            ●{" "}{daemon.running ? "live" : "offline"}
           </span>
-        )}
-      </div>
-      <div className="font-mono text-[11px] tracking-[0.14em] uppercase text-ink-2 text-right">
+          {updatedAt !== null && daemon.running && (
+            <span className="text-ink-4"> · {ago(updatedAt)} ago</span>
+          )}
+        </span>
+      )}
+      <div className="font-mono text-[11px] tracking-[0.14em] uppercase text-ink-2 text-right ml-auto whitespace-nowrap">
         {total} channel{total !== 1 ? "s" : ""}
         {atRisk > 0 && <span className="text-vermillion"> · {atRisk} at risk</span>}
       </div>

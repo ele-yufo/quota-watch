@@ -46,8 +46,8 @@ function WindowCell({ snap }: { snap: LatestSnapshot }) {
       </div>
       <div className="flex items-baseline gap-1.5 mt-0.5">
         <span
-          className={`font-serif font-semibold tnum leading-none ${INK_TEXT[level]}`}
-          style={{ fontSize: 24, letterSpacing: "-0.03em" }}
+          className={`font-serif font-semibold tnum leading-none text-[20px] sm:text-[24px] ${INK_TEXT[level]}`}
+          style={{ letterSpacing: "-0.03em" }}
         >
           {usedPct.toFixed(0)}
         </span>
@@ -83,7 +83,7 @@ export function ProviderRow({ card, onOpen }: ProviderRowProps) {
     <article
       onClick={clickable ? () => onOpen!(card) : undefined}
       tabIndex={clickable ? 0 : undefined}
-      className={`group relative grid grid-cols-[minmax(130px,180px)_1fr_1fr_1fr_auto] items-center gap-5 px-5 py-4 bg-paper border-t border-line-soft ${
+      className={`group relative grid grid-cols-1 gap-3 px-4 py-4 sm:grid-cols-[minmax(130px,180px)_1fr_1fr_1fr_auto] sm:items-center sm:gap-5 sm:px-5 bg-paper border-t border-line-soft ${
         clickable
           ? "cursor-pointer transition-colors hover:bg-paper-2 focus:outline-none focus:bg-paper-2"
           : ""
@@ -99,33 +99,35 @@ export function ProviderRow({ card, onOpen }: ProviderRowProps) {
         </h3>
       </div>
 
-      {/* Windows: session → week → month, columns aligned across rows */}
+      {/* Windows: session → week → month, columns aligned across rows.
+          On narrow screens the cells form their own 2-col grid instead of
+          squeezing into 30px columns that overlap. */}
       {card.primary ? (
-        <>
+        <div className="grid grid-cols-2 gap-3 sm:contents">
           {inline.map((w) => (
             <WindowCell key={w.windowName} snap={w} />
           ))}
           {padding.map((_, i) => (
-            <div key={`pad-${i}`} aria-hidden />
+            <div key={`pad-${i}`} aria-hidden className="hidden sm:block" />
           ))}
-        </>
+        </div>
       ) : (
-        <div className="col-span-3 py-2 text-center">
+        <div className="sm:col-span-3 py-2 text-left sm:text-center">
           <p className="font-serif italic text-[12px] text-ink-3">等待采集</p>
-          <p className="font-mono text-[9px] text-ink-4 mt-0.5">daemon 未运行？</p>
+          <p className="font-mono text-[9px] text-ink-4 mt-0.5">该渠道暂无采集数据</p>
         </div>
       )}
 
       {/* Reset countdown for the most-at-risk window + open affordance */}
       {card.primary ? (
-        <div className="text-right whitespace-nowrap">
+        <div className="flex items-baseline gap-3 sm:block sm:text-right whitespace-nowrap">
           <div className="font-mono text-[9px] tracking-[0.14em] uppercase text-ink-3">
             reset
           </div>
           <div className="font-mono text-[11px] tracking-[0.06em] text-ink-2 tnum">
             {formatResetCountdown(card.primary.resetAt) ?? "—"}
           </div>
-          <div className="font-mono text-[9px] tracking-[0.12em] uppercase text-ink-4 mt-0.5 group-hover:text-ink-2">
+          <div className="font-mono text-[9px] tracking-[0.12em] uppercase text-ink-4 sm:mt-0.5 group-hover:text-ink-2">
             details →
           </div>
         </div>
