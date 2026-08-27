@@ -75,6 +75,7 @@ function makeMockDb(
     getProvider(id: string) { return providers.find((p) => p.id === id) ?? null; },
     insertSnapshot(snap: unknown, providerId: string) {
       db.snapshots.push({ snap, providerId });
+      return true; // change-only writes: mock always "changed"
     },
     getAlertRules(_providerId?: string) { return alertRules; },
   } as unknown as QuotaDB & { snapshots: Array<{ snap: unknown; providerId: string }> };

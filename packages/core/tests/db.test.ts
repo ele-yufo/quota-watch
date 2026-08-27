@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { QuotaDB } from "../src/db.js";
 import type { ProviderConfig, UsageSnapshot, AlertRule } from "../src/db.js";
 import { tmpdir } from "node:os";
@@ -246,5 +246,59 @@ describe("QuotaDB", () => {
     // Multiple records still block
     db.recordAlert("rule-1", "openai-main", "daily", 5, "Even lower");
     expect(db.shouldFireAlert("rule-1", 3600000)).toBe(false);
+  });
+
+  // ── Data governance: change-only writes + maintenance ─────────────
+
+  it("skips a snapshot identical to the latest row", () => {
+    db.upsertProvider(makeProvider({ id: "openai-main" }));
+    const snap = makeSnapshot({ timestamp: "2026-07-01T10:00:00.000Z", used: 30, total: 100, unit: "requests", resetAt: null });
+
+    expect(db.insertSnapshot(snap, "openai-main")).toBe(true);
+    // Same values, newer timestamp → skipped (no information added).
+    expect(db.insertSnapshot({ ...snap, timestamp: "2026-07-01T10:10:00.000Z" }, "openai-main")).toBe(false);
+    // A used value change → written.
+    expect(db.insertSnapshot({ ...snap, timestamp: "2026-07-01T10:10:00.000Z", used: 31 }, "openai-main")).toBe(true);
+    // Only a resetAt change → written (reset moves the window's clock).
+    expect(db.insertSnapshot({ ...snap, timestamp: "2026-07-01T10:20:00.000Z", resetAt: "2026-07-01T12:00:00.000Z" }, "openai-main")).toBe(true);
+
+    const rows = db.getSnapshots("openai-main", "daily", "2026-01-01T00:00:00.000Z");
+    expect(rows).toHaveLength(3);
+  });
+
+  it("skips per provider+window independently", () => {
+    db.upsertProvider(makeProvider({ id: "openai-main" }));
+    const snap = makeSnapshot({ timestamp: "2026-07-01T10:00:00.000Z", used: 30 });
+
+    db.insertSnapshot(snap, "openai-main");
+    db.insertSnapshot({ ...snap, windowName: "monthly" }, "openai-main");
+    // Re-insert daily — skipped even though monthly was written since.
+    expect(db.insertSnapshot({ ...snap, timestamp: "2026-07-01T10:05:00.000Z" }, "openai-main")).toBe(false);
+  });
+
+  it("cleanupAlertHistory prunes only old rows", () => {
+    db.upsertProvider(makeProvider({ id: "openai-main" }));
+    db.addAlertRule(makeRule());
+    // 写入一条 120 天前的记录（拨时钟），再写一条当前记录。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.now() - 120 * 86_400_000));
+    db.recordAlert("rule-1", "openai-main", "daily", 8, "old");
+    vi.useRealTimers();
+    db.recordAlert("rule-1", "openai-main", "daily", 8, "fresh");
+
+    const removed = db.cleanupAlertHistory(90);
+    expect(removed).toBe(1);
+  });
+
+  it("performMaintenance prunes old data and keeps the DB usable", () => {
+    db.upsertProvider(makeProvider({ id: "openai-main" }));
+    db.addAlertRule(makeRule());
+    const oldSnap = makeSnapshot({ timestamp: new Date(Date.now() - 45 * 86_400_000).toISOString(), used: 10 });
+    db.insertSnapshot(oldSnap, "openai-main");
+    db.insertSnapshot(makeSnapshot({ used: 20 }), "openai-main");
+    db.recordAlert("rule-1", "openai-main", "daily", 8, "old alert");
+
+    db.performMaintenance(30, 90);
+    expect(db.getSnapshots("openai-main", "daily", "2000-01-01T00:00:00.000Z")).toHaveLength(1);
   });
 });

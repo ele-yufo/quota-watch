@@ -157,6 +157,43 @@ export class QuotaDB {
     return result.changes;
   }
 
+  /** Delete alert history older than the given number of days. */
+  cleanupAlertHistory(daysToKeep: number = 90): number {
+    const cutoff = new Date(Date.now() - daysToKeep * 86_400_000).toISOString();
+    const result = this.db
+      .prepare('DELETE FROM alert_history WHERE fired_at < ?')
+      .run(cutoff);
+    return result.changes;
+  }
+
+  /**
+   * Hourly housekeeping: prune snapshots + alert history, then checkpoint the
+   * WAL. Note: `incremental_vacuum` is intentionally NOT called — it's a no-op
+   * unless `auto_vacuum=INCREMENTAL` was set before table creation, which this
+   * DB never did; space is reclaimed by the one-off `vacuum()` at startup.
+   */
+  performMaintenance(daysToKeepSnapshots: number = 30, daysToKeepAlerts: number = 90): void {
+    this.cleanupOldData(daysToKeepSnapshots);
+    this.cleanupAlertHistory(daysToKeepAlerts);
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
+  /**
+   * One-off full VACUUM (startup after a migration / long-unpruned DB).
+   * Blocks the writer — only called from the daemon bootstrap, not the
+   * maintenance loop.
+   *
+   * In WAL mode VACUUM's whole rewrite lands in the WAL first; without a
+   * trailing checkpoint the shrunk pages stay stranded there (main file stays
+   * big and a crash loses the vacuum's transaction). So: checkpoint →
+   * VACUUM → checkpoint again.
+   */
+  vacuum(): void {
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+    this.db.exec('VACUUM');
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
   close(): void {
     this.db.close();
   }
@@ -225,8 +262,29 @@ export class QuotaDB {
 
   // ── Snapshot CRUD ──────────────────────────────────────────────────
 
-  insertSnapshot(snap: UsageSnapshot, providerId: string): void {
+  /**
+   * Write a snapshot — but only when it actually changed. Quota windows mostly
+   * tick once per session/usage burst; at a 10-min poll cadence a no-change
+   * write would inflate the table by ~26k rows/day with zero information.
+   * Returns `true` when a row was written, `false` when the latest row for this
+   * provider×window already matches (used/total/unit/reset_at).
+   */
+  insertSnapshot(snap: UsageSnapshot, providerId: string): boolean {
     const remainingPct = snap.total > 0 ? ((snap.total - snap.used) / snap.total) * 100 : 0;
+
+    const latest = this.db
+      .prepare(
+        `SELECT used, total, unit, reset_at FROM quota_snapshots
+         WHERE provider_id = ? AND window_name = ?
+         ORDER BY id DESC LIMIT 1`
+      )
+      .get(providerId, snap.windowName) as { used: number; total: number; unit: string; reset_at: string | null } | undefined;
+
+    if (latest && latest.used === snap.used && latest.total === snap.total
+        && latest.unit === snap.unit && (latest.reset_at ?? null) === (snap.resetAt ?? null)) {
+      return false;
+    }
+
     this.db
       .prepare(
         `INSERT INTO quota_snapshots (timestamp, provider_id, window_name, window_kind, used, total, unit, remaining_pct, reset_at)
@@ -243,6 +301,7 @@ export class QuotaDB {
         remainingPct,
         resetAt: snap.resetAt,
       });
+    return true;
   }
 
   getSnapshots(providerId: string, windowName: string, since: string): UsageSnapshot[] {

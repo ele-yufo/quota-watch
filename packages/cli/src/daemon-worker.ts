@@ -9,7 +9,7 @@
  * ~/.quota-watch/config.json.
  */
 
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import {
@@ -44,11 +44,35 @@ const LOG_PATH = join(DATA_DIR, 'daemon.log');
 mkdirSync(DATA_DIR, { recursive: true });
 
 // ── Logging ────────────────────────────────────────────────────────────
+// Rotating file log only — no stderr mirror (the launchd plist already routes
+// the process's stderr to its own file; mirroring doubled every line and grew
+// two 40MB copies). 10MB limit × 3 rotated files.
+
+const MAX_LOG_BYTES = 10 * 1024 * 1024;
+const LOG_KEEP = 3;
+
+function rotateLogIfNeeded(): void {
+  try {
+    if (!existsSync(LOG_PATH) || statSync(LOG_PATH).size < MAX_LOG_BYTES) return;
+    for (let i = LOG_KEEP - 1; i >= 1; i--) {
+      const from = i === 1 ? LOG_PATH : `${LOG_PATH}.${i - 1}`;
+      const to = `${LOG_PATH}.${i}`;
+      if (existsSync(from)) renameSync(from, to);
+    }
+    appendFileSync(LOG_PATH, `[${new Date().toISOString()}] [INFO] Log rotated (10MB limit)\n`);
+  } catch {
+    /* best effort — rotation failing must never take the worker down */
+  }
+}
 
 function log(level: 'INFO' | 'ERROR' | 'WARN', message: string): void {
+  rotateLogIfNeeded();
   const line = `[${new Date().toISOString()}] [${level}] ${message}\n`;
   appendFileSync(LOG_PATH, line);
-  process.stderr.write(line);
+}
+
+function fmtBytes(n: number): string {
+  return n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.round(n / 1024)}KB`;
 }
 
 // ── Log-based notifier (always active) ─────────────────────────────────
@@ -124,17 +148,26 @@ async function main(): Promise<void> {
   scheduler.start();
   log('INFO', 'Scheduler started');
 
-  // Embedded HTTP API — web dashboard status/refresh, menu bar, iOS app
+  // Embedded HTTPS API — web dashboard status/refresh, menu bar, iOS app.
+  // TLS material (local CA + server cert) is generated on first boot; clients
+  // pin the CA fingerprint handed out by /pair/claim.
   let apiServer: Server | null = null;
   try {
+    const tls = ensureTlsConfig(defaultCertsDir());
     apiServer = await startApiServer({
       db,
       scheduler,
       host: appConfig.api.host,
       port: appConfig.api.port,
       token: appConfig.api.token,
+      tls: { certPath: tls.certPath, keyPath: tls.keyPath },
+      caFingerprint: tls.caFingerprint,
     });
-    log('INFO', `API listening on http://${appConfig.api.host}:${appConfig.api.port}`);
+    log(
+      'INFO',
+      `API listening on https://${appConfig.api.host}:${appConfig.api.port} ` +
+        `(CA fingerprint ${tls.caFingerprint.slice(0, 12)}…)`,
+    );
   } catch (err) {
     // e.g. port already taken — polling still works, API just unavailable
     log('ERROR', `API server failed to start: ${err instanceof Error ? err.message : err}`);
@@ -146,11 +179,41 @@ async function main(): Promise<void> {
     log('INFO', 'Initial poll complete');
   });
 
-  // Run data cleanup on startup (remove snapshots older than 30 days)
-  const cleaned = db.cleanupOldData(30);
-  if (cleaned > 0) {
-    log('INFO', `Cleaned up ${cleaned} old snapshot(s)`);
+  // One-off full VACUUM on boot — reclaims space from the pre-throttle era
+  // (87MB → ~25-30MB). WAL must be checkpointed first or VACUUM has nothing
+  // to shrink.
+  try {
+    db.performMaintenance(30, 90);
+    const before = statSync(DB_PATH).size;
+    db.vacuum();
+    const after = statSync(DB_PATH).size;
+    log('INFO', `Startup maintenance: data.db ${fmtBytes(before)} → ${fmtBytes(after)}`);
+  } catch (err) {
+    log('WARN', `Startup maintenance skipped: ${err instanceof Error ? err.message : err}`);
   }
+
+  // Remove the legacy pre-v2 database leftover. (daemon.pid is NOT a leftover —
+  // the CLI's `daemon start` writes it and `daemon stop` reads it.)
+  const legacyDb = join(DATA_DIR, 'quota-watch.db');
+  if (existsSync(legacyDb)) {
+    try {
+      rmSync(legacyDb);
+      log('INFO', 'Removed legacy file: quota-watch.db');
+    } catch {
+      /* best effort */
+    }
+  }
+
+  // Hourly housekeeping: prune snapshots/alerts, checkpoint WAL, incremental
+  // vacuum. Unref'd so it never keeps the process alive.
+  setInterval(() => {
+    try {
+      db.performMaintenance(30, 90);
+      log('INFO', 'Hourly maintenance complete');
+    } catch (err) {
+      log('ERROR', `Hourly maintenance failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }, 60 * 60 * 1000).unref();
 
   // Graceful shutdown
   const shutdown = (): void => {

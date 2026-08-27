@@ -142,7 +142,11 @@ export class QuotaScheduler {
       return;
     }
 
-    // Store snapshots in DB
+    // Store snapshots in DB — change-only writes since the data-governance
+    // pass (a row is only written when used/total/unit/reset_at moved). The
+    // return value isn't used here: the activity buffer below tracks the raw
+    // used values on EVERY poll, so idle detection still works when a window
+    // holds constant (change-only writes must not starve it).
     for (const window of quota.windows) {
       this.config.db.insertSnapshot(
         {

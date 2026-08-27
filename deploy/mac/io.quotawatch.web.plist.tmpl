@@ -21,6 +21,8 @@
 	<dict>
 		<key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
 		<key>NODE_ENV</key><string>production</string>
+		<!-- Node's fetch trusts the daemon's local CA via this env var. -->
+		<key>NODE_EXTRA_CA_CERTS</key><string>__DATA_DIR__/certs/ca.crt</string>
 	</dict>
 </dict>
 </plist>
