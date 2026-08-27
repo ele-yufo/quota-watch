@@ -20,6 +20,10 @@ final class PairingModel: ObservableObject {
     /// CA fingerprint from /pair/start — shown for manual entry (the QR carries
     /// it too, but a manually-pairing phone must type it to pin TLS).
     @Published var caFingerprint = ""
+    /// True once the current code's TTL ran out — MenuBarView auto-closes the
+    /// panel on this, so a popover dismissed by clicking outside doesn't stick
+    /// the user on an expired pairing sheet at the next click.
+    @Published private(set) var isExpired = false
 
     private var timer: Timer?
     private var expiresAt: Date?
@@ -82,6 +86,7 @@ final class PairingModel: ObservableObject {
                 return
             }
             self.code = code
+            isExpired = false
             expiresAt = Date(timeIntervalSince1970: expMs / 1000)
             // The QR carries the CA fingerprint so the phone pins TLS before
             // claiming the code (never trusting-on-first-use).
@@ -148,7 +153,10 @@ final class PairingModel: ObservableObject {
     private func updateSecondsLeft() {
         guard let expiresAt else { return }
         secondsLeft = max(0, Int(expiresAt.timeIntervalSinceNow))
-        if secondsLeft == 0 { timer?.invalidate() }
+        if secondsLeft == 0 {
+            timer?.invalidate()
+            isExpired = true
+        }
     }
 
     private func makeQR(_ payload: String) -> NSImage? {

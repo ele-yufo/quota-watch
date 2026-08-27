@@ -31,6 +31,15 @@ struct MenuBarView: View {
             }
         }
         .frame(width: 340)
+        // Popover dismissed by clicking outside never calls the panel's close
+        // handler; when the code's TTL runs out, drop back to the quota list so
+        // the next click doesn't land on an expired pairing sheet.
+        .onChange(of: pairing.isExpired) { expired in
+            if expired {
+                showPairing = false
+                pairing.stop()
+            }
+        }
     }
 
     // MARK: - Header

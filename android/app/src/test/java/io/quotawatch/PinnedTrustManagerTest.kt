@@ -2,6 +2,7 @@ package io.quotawatch
 
 import io.quotawatch.net.FingerprintPin
 import io.quotawatch.net.PinnedHttpClients
+import io.quotawatch.net.RootCaTrustManager
 import okhttp3.Request
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -70,5 +71,22 @@ class PinnedTrustManagerTest {
         val client = PinnedHttpClients.client(caPin, 5)
         val req = Request.Builder().url("https://127.0.0.1:${server.port}/health").build()
         client.newCall(req).execute().use { assertEquals(200, it.code) }
+    }
+
+    @Test fun `MITM appending the real CA behind their own leaf is rejected`() {
+        // The daemon presents the CA cert publicly, so an attacker can build
+        // [attackerLeaf, realCA]. Fingerprint-only pinning would accept; the
+        // leaf-signature check must reject. (okhttp-tls refuses to serve a
+        // mismatched chain, so attack the trust manager directly — that is
+        // exactly the array TLS hands us.)
+        val attackerCa = HeldCertificate.Builder().certificateAuthority(0).build()
+        val attackerLeaf = HeldCertificate.Builder().signedBy(attackerCa)
+            .commonName("evil").build()
+        val tm = RootCaTrustManager(caPin)
+        assertThrows(java.security.cert.CertificateException::class.java) {
+            tm.checkServerTrusted(arrayOf(attackerLeaf.certificate, ca.certificate), "EC")
+        }
+        // and the honest chain still passes the same path
+        tm.checkServerTrusted(arrayOf(leaf.certificate, ca.certificate), "EC")
     }
 }
