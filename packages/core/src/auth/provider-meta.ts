@@ -92,7 +92,6 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
   },
   // P2 — not yet wired
   { slug: "copilot", displayName: "GitHub Copilot", authKind: "oauth-file", available: false },
-  { slug: "gemini", displayName: "Gemini CLI", authKind: "oauth-file", available: false },
 ];
 
 export function getProviderAuthMeta(slug: string): ProviderAuthMeta | undefined {

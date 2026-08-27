@@ -20,6 +20,8 @@ import {
   DiscordNotifier,
   loadAppConfig,
   ensureApiToken,
+  ensureTlsConfig,
+  defaultCertsDir,
   startApiServer,
   codexProvider,
   claudeProvider,
@@ -28,7 +30,6 @@ import {
   antigravityProvider,
   glmCnProvider,
   copilotProvider,
-  geminiCliProvider,
 } from '@quota-watch/core';
 import type { AlertNotifier, AlertMessage } from '@quota-watch/core';
 import type { Server } from 'node:http';
@@ -84,7 +85,6 @@ async function main(): Promise<void> {
   registry.register(antigravityProvider);
   registry.register(glmCnProvider);
   registry.register(copilotProvider);
-  registry.register(geminiCliProvider);
   log('INFO', `Registered providers: ${registry.list().join(', ')}`);
 
   // Set up alert notifiers

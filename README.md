@@ -30,7 +30,7 @@ shows you — everywhere you look — exactly how much is left and when it reset
 
 ## Highlights
 
-- 🛰 **8 providers, natively integrated** — Claude Code, Codex, GLM, OpenCode Go, Kimi, Antigravity, GitHub Copilot, Gemini CLI. Direct HTTP clients; no shelling out to community tools.
+- 🛰 **6 providers, natively integrated** — Claude Code, Codex (your ChatGPT plan's Codex quota), GLM, OpenCode Go, Kimi, Antigravity. Direct HTTP clients; no shelling out to community tools. GitHub Copilot is on the roadmap.
 - ⚡ **Near-realtime** — ~10 s when usage is moving, backing off when idle. GLM tips over its cap and you see it in seconds, not half an hour.
 - 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month), so `5h`, `7d` and `1mo` always read the same order across every surface.
 - 🎨 **Five web dashboards, five layouts** — not recolours. Each theme is its own composition, visualization and motion (see below).
@@ -119,13 +119,13 @@ notes, and how to pair the iOS app over the public internet.
 | Provider | Windows | Credentials |
 |---|---|---|
 | Claude Code | 5h session, 7d weekly (+sonnet) | reuses `~/.claude/.credentials.json`, auto-refresh |
-| Codex | 5h session, 7d weekly | reuses `~/.codex/auth.json`, auto-refresh |
+| Codex | 5h session, 7d weekly | reuses `~/.codex/auth.json` — your **ChatGPT** login; surfaces your ChatGPT plan's (Plus/Pro) Codex quota, auto-refresh |
 | GLM-CN | 5h session, 7d weekly | Coding Plan API key |
 | OpenCode Go | 5h session, 7d weekly, 1mo monthly | opencode.ai `auth` cookie + workspace id |
 | Kimi | 5h session, 7d weekly | Kimi Code API key |
 | Antigravity | 5h Gemini pool, 5h Claude+GPT pool | reuses the `antigravity-usage` CLI token store |
-| GitHub Copilot | monthly allowances | GitHub token (P2) |
-| Gemini CLI | daily per-model buckets | Google OAuth token (P2) |
+
+*Roadmap:* a **GitHub Copilot** adapter (monthly request allowances) is implemented but its credential setup isn't wired into the app yet.
 
 OpenCode Go window semantics (server-defined): 5h is a true rolling window;
 **weekly resets Monday 00:00 UTC**; **monthly resets on your billing-cycle
