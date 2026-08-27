@@ -33,3 +33,11 @@ ios/Local.xcconfig
 .omp/.review-sig
 # review-gate signature — machine-local state
 .claude/.review-sig
+
+# Android (android/)
+android/.gradle/
+android/local.properties
+android/**/build/
+android/.idea/
+android/captures/
+android/.kotlin/

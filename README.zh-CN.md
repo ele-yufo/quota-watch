@@ -11,7 +11,7 @@
 无云端、无遥测——你的凭据永远不离开本机。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Web%20·%20iOS%20·%20macOS%20·%20CLI-lightgrey)
+![Platforms](https://img.shields.io/badge/platforms-Web%20·%20iOS%20·%20Android%20·%20macOS%20·%20CLI-lightgrey)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
 
 <img src="docs/screenshots/web-terminal.png" width="820" alt="quota-watch 网页仪表盘 — 终端主题" />
@@ -65,6 +65,13 @@
 - **内置 Demo 模式** —— 配置前先用示例数据预览整个 app。
 
 SwiftUI,iOS 18+。构建见 [`ios/README.md`](ios/README.md)。
+
+## Android app
+
+iOS 版的 Jetpack Compose 移植(Glance 小组件) —— 同一套文案、同样的环形
+量表、连同一个 daemon。差异:手动配对**必须填 CA 指纹**(daemon 只讲
+HTTPS,iOS 的明文降级通道在这里不存在);无锁屏小组件(Android 无对应物)。
+构建见 [`android/README.md`](android/README.md)。
 
 <br clear="all" />
 
@@ -121,6 +128,7 @@ quota-watch/
 ├── packages/cli/     status · config · dashboard · daemon · connect(扫码配对)
 ├── packages/web/     Next.js 仪表盘 —— 五套按主题的布局,:3000
 ├── ios/              SwiftUI app —— 经局域网/隧道连 daemon
+├── android/          iOS app 的 Compose 移植(Glance 小组件,同一个 daemon)
 └── mac/              macOS 菜单栏(读同一个 SQLite)
 ```
 

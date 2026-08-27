@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher glyph: the 270° ring gauge, accent amber on dark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- track: 270° arc, bottom gap (center 54,54 r=26, from 135° sweep 270°) -->
+    <path
+        android:strokeColor="#FF231E19" android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:pathData="M72.38,72.38 A26,26 0 1,1 35.62,72.38" />
+    <!-- progress: ~65% of the arc -->
+    <path
+        android:strokeColor="#FFD8916D" android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:pathData="M35.62,72.38 A26,26 0 0,1 79.6,40.2" />
+</vector>

@@ -12,7 +12,7 @@ On your desktop, in your menu bar, and on your iPhone.
 No cloud, no telemetry — your tokens never leave your machine.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Web%20·%20iOS%20·%20macOS%20·%20CLI-lightgrey)
+![Platforms](https://img.shields.io/badge/platforms-Web%20·%20iOS%20·%20Android%20·%20macOS%20·%20CLI-lightgrey)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
 
 <img src="docs/screenshots/web-terminal.png" width="820" alt="quota-watch web dashboard — terminal theme" />
@@ -34,7 +34,7 @@ shows you — everywhere you look — exactly how much is left and when it reset
 - ⚡ **Near-realtime** — ~10 s when usage is moving, backing off when idle. GLM tips over its cap and you see it in seconds, not half an hour.
 - 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month), so `5h`, `7d` and `1mo` always read the same order across every surface.
 - 🎨 **Five web dashboards, five layouts** — not recolours. Each theme is its own composition, visualization and motion (see below).
-- 📱 **iOS app + widgets** — a dark instrument UI with real provider logos and ring gauges; pairs by QR over the LAN or a tunnel. Home-screen & lock-screen widgets show the tightest window at a glance (long-press to pin a provider).
+- 📱 **iOS + Android apps with widgets** — a dark instrument UI with real provider logos and ring gauges; pairs by QR over the LAN or a tunnel. Home-screen widgets show the tightest window at a glance (pin a provider if you prefer).
 - 🖥 **macOS menu bar** — the worst window's % in the bar, a per-provider popover on click.
 - 🔒 **Local-first & private** — SQLite on your machine; credentials are used only to call each provider's own API and are never uploaded anywhere.
 
@@ -68,6 +68,14 @@ control dock (top-right, always in the same place).
 - **Widgets** — home-screen small (one dial) & medium (multi-provider overview), plus lock-screen / Dynamic Island accessories. They track the tightest window automatically, or long-press to pin a specific provider; data fetches over your tunnel with a cached fallback.
 
 SwiftUI, iOS 18+. Widgets need an App Group (paid Apple Developer account). See [`ios/README.md`](ios/README.md) to build it.
+
+## The Android app
+
+A port of the iOS app to Jetpack Compose + Glance widgets — same copy, same
+ring gauges, same pairing flow against the same daemon. Notable differences:
+manual pairing **requires the CA fingerprint** (the daemon is HTTPS-only; the
+iOS cleartext fallback does not exist here), and there are no lock-screen
+widgets (Android has no equivalent). See [`android/README.md`](android/README.md).
 
 <br clear="all" />
 
@@ -140,6 +148,7 @@ quota-watch/
 ├── packages/cli/     status · config · dashboard · daemon · connect (QR pairing)
 ├── packages/web/     Next.js dashboard — 5 per-theme layouts, :3000
 ├── ios/              SwiftUI app — connects to the daemon over LAN / tunnel
+├── android/          Compose port of the iOS app (Glance widgets, same daemon)
 └── mac/              macOS menu bar (reads the same SQLite)
 ```
 

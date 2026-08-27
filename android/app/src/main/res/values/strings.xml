@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">quota·watch</string>
+    <string name="widget_featured_label">配额 · 精选</string>
+    <string name="widget_overview_label">配额一览</string>
+</resources>
