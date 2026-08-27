@@ -160,7 +160,7 @@ async function main(): Promise<void> {
       host: appConfig.api.host,
       port: appConfig.api.port,
       token: appConfig.api.token,
-      tls: { certPath: tls.certPath, keyPath: tls.keyPath },
+      tls: { certPath: tls.certPath, keyPath: tls.keyPath, caPath: tls.caPath },
       caFingerprint: tls.caFingerprint,
     });
     log(

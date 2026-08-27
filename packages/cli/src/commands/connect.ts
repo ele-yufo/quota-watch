@@ -18,9 +18,15 @@ function lanAddresses(): string[] {
   return result;
 }
 
-/** PEM CA from the daemon's cert dir — the trust anchor for all CLI calls. */
-function daemonCa(): string {
-  return readFileSync(join(defaultCertsDir(), 'ca.crt'), 'utf-8');
+/** PEM CA from the daemon's cert dir — the trust anchor for all CLI calls.
+ *  Undefined when the daemon has never booted (no certs yet); every call then
+ *  fails verification and surfaces as the friendly "not reachable" hint. */
+function daemonCa(): string | undefined {
+  try {
+    return readFileSync(join(defaultCertsDir(), 'ca.crt'), 'utf-8');
+  } catch {
+    return undefined;
+  }
 }
 
 function httpsJson(
@@ -28,7 +34,7 @@ function httpsJson(
   token: string | null,
   path: string,
   method: 'GET' | 'POST',
-  ca: string,
+  ca: string | undefined,
 ): Promise<unknown> {
   return new Promise((resolve) => {
     const req = https.request(
@@ -62,7 +68,7 @@ function httpsJson(
   });
 }
 
-async function daemonApiReachable(port: number, token: string | null, ca: string): Promise<boolean> {
+async function daemonApiReachable(port: number, token: string | null, ca: string | undefined): Promise<boolean> {
   const body = await httpsJson(port, token, '/health', 'GET', ca);
   return body !== null;
 }
@@ -75,7 +81,7 @@ async function daemonApiReachable(port: number, token: string | null, ca: string
 async function startPairingSession(
   port: number,
   token: string | null,
-  ca: string,
+  ca: string | undefined,
 ): Promise<{ code: string; caFingerprint?: string } | null> {
   const body = (await httpsJson(port, token, '/pair/start', 'POST', ca)) as
     | { code?: string; caFingerprint?: string }

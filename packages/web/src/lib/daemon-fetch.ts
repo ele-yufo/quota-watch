@@ -1,5 +1,5 @@
 import https from 'node:https';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,17 +7,22 @@ import { join } from 'node:path';
  * fetch 到 daemon 的 HTTPS API。显式信任 ~/.quota-watch/certs/ca.crt——
  * 不依赖 NODE_EXTRA_CA_CERTS（launchd 部署有该 env，但手动
  * `next start` / `next dev` 没有，直接 fetch 自签 CA 会静默失败）。
+ *
+ * 缓存按 mtime 失效：daemon 证书轮换（删 certs 目录重启）后无需重启 web。
  */
-let caCache: Buffer | undefined;
+let caCache: { mtimeMs: number; pem: Buffer } | undefined;
 
 function daemonCa(): Buffer | undefined {
-  if (caCache) return caCache;
+  const p = join(homedir(), '.quota-watch', 'certs', 'ca.crt');
   try {
-    caCache = readFileSync(join(homedir(), '.quota-watch', 'certs', 'ca.crt'));
+    const { mtimeMs } = statSync(p);
+    if (!caCache || caCache.mtimeMs !== mtimeMs) {
+      caCache = { mtimeMs, pem: readFileSync(p) };
+    }
+    return caCache.pem;
   } catch {
     return undefined;
   }
-  return caCache;
 }
 
 export function fetchDaemon(

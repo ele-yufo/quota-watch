@@ -50,7 +50,7 @@ async function listen(token: string | null): Promise<void> {
     host: '127.0.0.1',
     port: 0,
     token,
-    tls: { certPath: tls.certPath, keyPath: tls.keyPath },
+    tls: { certPath: tls.certPath, keyPath: tls.keyPath, caPath: tls.caPath },
   });
   const addr = server.address();
   if (addr === null || typeof addr === 'string') throw new Error('no port');

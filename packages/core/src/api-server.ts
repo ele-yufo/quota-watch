@@ -51,9 +51,11 @@ export interface ApiServerOptions {
   version?: string;
   /**
    * TLS material. Required — the API is HTTPS-only, there is no plaintext
-   * fallback. `createServer` throws if the files are unreadable.
+   * fallback. `createServer` throws if the files are unreadable. The server
+   * presents the full chain (leaf + CA): iOS pins `chain.last` and never sees
+   * the CA if only the leaf is sent.
    */
-  tls: { certPath: string; keyPath: string };
+  tls: { certPath: string; keyPath: string; caPath: string };
   /** CA SHA-256 fingerprint, handed out via /pair/claim so clients can pin. */
   caFingerprint?: string;
 }
@@ -121,7 +123,11 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
 
   const server = createServer(
     {
-      cert: readFileSync(options.tls.certPath),
+      // Leaf + CA concatenated: use_certificate_chain semantics (first cert is
+      // the leaf matched against the key, the rest form the presented chain).
+      // A `cert: [leaf, ca]` array instead makes each cert "current" in turn
+      // and the private-key check then fails against the CA.
+      cert: readFileSync(options.tls.certPath, "utf-8") + readFileSync(options.tls.caPath, "utf-8"),
       key: readFileSync(options.tls.keyPath),
     },
     (req: IncomingMessage, res: ServerResponse) => {
