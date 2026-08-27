@@ -18,7 +18,6 @@ DerivedData/
 # CLI internals / embedded credentials / personal account details)
 docs/providers/
 # local device-build helper (contains personal Apple team)
-ios/run-on-device.sh
 # macOS menu-bar app bundle (built by mac/build-app.sh)
 mac/QuotaWatch.app/
 
@@ -30,5 +29,5 @@ ios/build/
 # iOS local signing override (team id + personal bundle id)
 ios/Local.xcconfig
 
-# Claude Code local workflow (review-gate hooks + settings) — machine-local
-.claude/
+# OMP review-gate state is machine-local; project extensions remain tracked.
+.omp/.review-sig
