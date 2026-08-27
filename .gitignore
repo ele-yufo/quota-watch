@@ -31,3 +31,5 @@ ios/Local.xcconfig
 
 # OMP review-gate state is machine-local; project extensions remain tracked.
 .omp/.review-sig
+# review-gate signature — machine-local state
+.claude/.review-sig
