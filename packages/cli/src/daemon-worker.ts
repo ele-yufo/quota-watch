@@ -69,9 +69,13 @@ function rotateLogIfNeeded(): void {
 }
 
 function log(level: 'INFO' | 'ERROR' | 'WARN', message: string): void {
-  rotateLogIfNeeded();
-  const line = `[${new Date().toISOString()}] [${level}] ${message}\n`;
-  appendFileSync(LOG_PATH, line);
+  try {
+    rotateLogIfNeeded();
+    const line = `[${new Date().toISOString()}] [${level}] ${message}\n`;
+    appendFileSync(LOG_PATH, line);
+  } catch {
+    /* disk full / EACCES — logging must never take the daemon down */
+  }
 }
 
 function fmtBytes(n: number): string {
@@ -271,12 +275,21 @@ async function main(): Promise<void> {
 
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+  // launchd KeepAlive=true: crashing out and letting launchd relaunch a clean
+  // process beats surviving an uncaught exception in an unknown state.
   process.on('uncaughtException', (err) => {
-    log('ERROR', `Uncaught: ${err.message}`);
+    log('ERROR', `Uncaught: ${err.stack ?? err.message}`);
+    process.exit(1);
   });
   process.on('unhandledRejection', (err) => {
     log('ERROR', `Unhandled rejection: ${err}`);
   });
 }
 
-void main();
+// Without this catch, a main() rejection before the handlers above register is
+// an invisible dead-on-arrival: CLI printed "started", launchd thinks it ran,
+// nothing is polling.
+main().catch((err) => {
+  log('ERROR', `Fatal startup error: ${err instanceof Error ? (err.stack ?? err.message) : err}`);
+  process.exit(1);
+});

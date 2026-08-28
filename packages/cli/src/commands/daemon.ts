@@ -1,10 +1,10 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { loadAppConfig, saveAppConfig, ensureApiToken } from '@quota-watch/core';
+import { loadAppConfig, saveAppConfig, ensureApiToken, isLoopbackHost } from '@quota-watch/core';
 
 // ── Paths ──────────────────────────────────────────────────────────────
 
@@ -52,6 +52,37 @@ function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
+  } catch (err) {
+    // EPERM = the process exists but belongs to another user — it is ALIVE.
+    // Treating it as dead would clean a live PID file and double-start.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** True when `pid` is actually our worker, not an innocent PID reuser. */
+function pidIsWorker(pid: number): boolean {
+  try {
+    const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
+      encoding: 'utf-8',
+    }).trim();
+    return cmd.includes('daemon-worker');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * On macOS the daemon is normally a launchd job (io.quotawatch.daemon,
+ * KeepAlive=true). `daemon start` there spawns a SECOND worker — double
+ * polling, duplicate alerts, and two writers on the same SQLite DB.
+ */
+function launchdJobLoaded(): boolean {
+  if (process.platform !== 'darwin') return false;
+  try {
+    execFileSync('launchctl', ['print', `gui/${process.getuid?.() ?? 0}/io.quotawatch.daemon`], {
+      stdio: 'pipe',
+    });
+    return true;
   } catch {
     return false;
   }
@@ -60,18 +91,12 @@ function isProcessAlive(pid: number): boolean {
 // ── Subcommands ────────────────────────────────────────────────────────
 
 function startDaemon(options: { lan?: boolean } = {}): void {
-  const existingPid = readPid();
-  if (existingPid !== null && isProcessAlive(existingPid)) {
-    console.log(chalk.yellow(`Daemon already running (pid ${existingPid})`));
-    console.log(chalk.dim('Stop it first with: quota-watch daemon stop'));
-    return;
-  }
-
-  // --lan persists api.host=0.0.0.0 (+ generated token) so the iOS app can
-  // reach the daemon; the worker reads config.json at startup.
+  // --lan persists config REGARDLESS of how the daemon is run (launchd or
+  // CLI-spawned) — refusing before this block made the documented pairing
+  // flow a no-op on launchd installs.
   if (options.lan) {
     const config = loadAppConfig();
-    if (config.api.host === '127.0.0.1') {
+    if (isLoopbackHost(config.api.host)) {
       saveAppConfig({ ...config, api: { ...config.api, host: '0.0.0.0' } });
     }
     const withToken = ensureApiToken(loadAppConfig());
@@ -79,19 +104,37 @@ function startDaemon(options: { lan?: boolean } = {}): void {
     console.log(chalk.dim('Pair a device with: quota-watch connect'));
   }
 
-  // Clean stale PID file
-  removePid();
-  ensureDataDir();
+  if (launchdJobLoaded()) {
+    console.log(chalk.yellow('Daemon is managed by launchd (io.quotawatch.daemon).'));
+    if (options.lan) {
+      console.log(chalk.dim('LAN config saved; apply it with: launchctl kickstart -k gui/$(id -u)/io.quotawatch.daemon'));
+    } else {
+      console.log(chalk.dim('Restart it with: launchctl kickstart -k gui/$(id -u)/io.quotawatch.daemon'));
+    }
+    console.log(chalk.dim('Spawning a second worker would double-poll every provider.'));
+    return;
+  }
 
-  const logFile = join(DATA_DIR, 'daemon.log');
+  const existingPid = readPid();
+  if (existingPid !== null && isProcessAlive(existingPid) && pidIsWorker(existingPid)) {
+    console.log(chalk.yellow(`Daemon already running (pid ${existingPid})`));
+    console.log(chalk.dim('Stop it first with: quota-watch daemon stop'));
+    return;
+  }
+
   const workerPath = resolveWorkerPath();
-
   if (!existsSync(workerPath)) {
     console.error(chalk.red(`Worker script not found: ${workerPath}`));
     console.error(chalk.dim('Run: pnpm --filter @quota-watch/cli build'));
     process.exitCode = 1;
     return;
   }
+
+  // Clean stale PID file
+  removePid();
+  ensureDataDir();
+
+  const logFile = join(DATA_DIR, 'daemon.log');
 
   // Use spawn (not fork) to avoid creating an IPC channel.
   // The daemon uses PID files for lifecycle management, not IPC.
@@ -119,19 +162,33 @@ function stopDaemon(): void {
     return;
   }
 
-  if (!isProcessAlive(pid)) {
-    console.log(chalk.yellow(`Stale PID file (process ${pid} not running). Cleaning up.`));
+  if (!isProcessAlive(pid) || !pidIsWorker(pid)) {
+    console.log(chalk.yellow(`Stale PID file (process ${pid} not our worker). Cleaning up.`));
     removePid();
     return;
   }
 
   try {
     process.kill(pid, 'SIGTERM');
-    console.log(chalk.green(`✓ Daemon stopped (pid ${pid})`));
   } catch (err) {
     console.error(chalk.red(`Failed to stop daemon: ${err}`));
+    return; // keep the PID file — the process may still be alive
   }
 
+  // SIGTERM is async — the worker needs a moment to close the DB and exit.
+  // Claiming success without waiting leaves the next `start` racing a live
+  // process on the same SQLite file. Atomics.wait = blocking sleep, one-shot CLI.
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline && isProcessAlive(pid)) {
+    Atomics.wait(nap, 0, 0, 100);
+  }
+  if (isProcessAlive(pid)) {
+    console.log(chalk.yellow(`Daemon (pid ${pid}) has not exited yet; check ${join(DATA_DIR, 'daemon.log')}`));
+    return; // PID file stays — it still owns the process
+  }
+
+  console.log(chalk.green(`✓ Daemon stopped (pid ${pid})`));
   removePid();
 }
 
@@ -143,7 +200,7 @@ function daemonStatus(): void {
     return;
   }
 
-  if (isProcessAlive(pid)) {
+  if (isProcessAlive(pid) && pidIsWorker(pid)) {
     console.log(chalk.green(`✓ Daemon is running (pid ${pid})`));
     console.log(chalk.dim(`  Log file: ${join(DATA_DIR, 'daemon.log')}`));
   } else {

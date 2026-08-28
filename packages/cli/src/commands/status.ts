@@ -6,18 +6,6 @@ import { join } from 'node:path';
 import { QuotaDB, predictConsumption } from '@quota-watch/core';
 import { renderQuotaBar, renderPace, renderResetTime, formatTokens } from '../render.js';
 
-interface StatusRow {
-  providerId: string;
-  displayName: string;
-  providerType: string;
-  windowName: string;
-  used: number;
-  total: number;
-  unit: string;
-  remainingPct: number;
-  resetAt: string | null;
-  timestamp: string;
-}
 
 export function statusCommand(program: Command): void {
   program
@@ -112,9 +100,10 @@ export function statusCommand(program: Command): void {
           }
         }
 
-        // Summary line
-        const updated = new Date(rows[0].timestamp);
-        const ago = formatTimeAgo(updated);
+        // Summary line — rows are name-sorted, so rows[0] is NOT the newest;
+        // take the max timestamp across all rows.
+        const newest = rows.reduce((a, b) => (a.timestamp > b.timestamp ? a : b));
+        const ago = formatTimeAgo(new Date(newest.timestamp));
         console.log(chalk.dim(`  Last updated: ${ago}`));
         console.log('');
       } finally {
