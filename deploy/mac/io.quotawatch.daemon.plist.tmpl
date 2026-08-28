@@ -19,6 +19,11 @@
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+		<!-- Extra SANs baked into the daemon's TLS cert at first generation,
+		     so remote MCP clients can reach /mcp through the frp tunnel with
+		     real hostname verification (they still pin the CA). To change:
+		     edit, delete ~/.quota-watch/certs/server.{crt,key}, kickstart. -->
+		<key>QUOTA_WATCH_CERT_EXTRA_SANS</key><string>IP:111.228.51.177</string>
 	</dict>
 </dict>
 </plist>

@@ -64,7 +64,14 @@ export function ensureTlsConfig(certsDir: string): TlsConfig {
     // Clients only pin the CA fingerprint, but the server cert still needs a
     // SAN covering 127.0.0.1 — Node's built-in hostname verification on the
     // CLI/web side checks it. LAN IPs are covered by the pin, not the SAN.
-    writeFileSync(sanFile, "subjectAltName=IP:127.0.0.1,DNS:localhost\nextendedKeyUsage=serverAuth\n");
+    // Remote MCP clients reach the daemon through the frp tunnel's public
+    // IP, so deploy-specific SANs come from QUOTA_WATCH_CERT_EXTRA_SANS
+    // (comma-separated, openssl syntax: "IP:1.2.3.4,DNS:example.com").
+    // Changing it only takes effect after deleting server.crt/server.key —
+    // the CA (and thus the client pin) is untouched.
+    const extraSans = (process.env.QUOTA_WATCH_CERT_EXTRA_SANS ?? "").trim();
+    const sans = "IP:127.0.0.1,DNS:localhost" + (extraSans ? `,${extraSans}` : "");
+    writeFileSync(sanFile, `subjectAltName=${sans}\nextendedKeyUsage=serverAuth\n`);
     run(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", serverKey]);
     run(["req", "-new", "-key", serverKey, "-out", serverCsr, "-sha256", "-subj", "/CN=quota-watch local"]);
     run([

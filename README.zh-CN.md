@@ -125,6 +125,20 @@ open http://localhost:3000
 claude mcp add quota-watch -- node "$PWD/packages/cli/dist/index.js" mcp
 ```
 
+**远程机器**(没有 daemon、没有会话日志)用同一组工具走 streamable HTTP:daemon 的
+HTTPS API 同时把 MCP 挂在 `/mcp`,同一 Bearer token 鉴权——经 frp 隧道任何服务器都能
+连。TLS 证书默认只有 127.0.0.1 的 SAN;要加入隧道公网 IP,在首次生成证书前给 daemon
+环境设 `QUOTA_WATCH_CERT_EXTRA_SANS="IP:<公网IP>"`(macOS launchd 模板已内置),
+删掉 `~/.quota-watch/certs/server.{crt,key}` 后重启。CA 与各设备的 pin 不受影响。
+远程机器上:
+
+```bash
+mkdir -p ~/.quota-watch && scp mac:~/.quota-watch/certs/ca.crt ~/.quota-watch/
+echo 'export NODE_EXTRA_CA_CERTS="$HOME/.quota-watch/ca.crt"' >> ~/.shell_env
+claude mcp add quota-watch --transport http https://<公网IP>:38737/mcp \
+  --header "Authorization: Bearer <~/.quota-watch/config.json 里的 api token>"
+```
+
 ## 支持的渠道
 
 | 渠道 | 窗口 | 凭据 |

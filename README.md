@@ -130,6 +130,23 @@ Register it with your harness, e.g. Claude Code:
 claude mcp add quota-watch -- node "$PWD/packages/cli/dist/index.js" mcp
 ```
 
+**Remote machines** (no daemon, no session logs there) use the same three
+tools over streamable HTTP: the daemon also serves MCP at `/mcp` on its HTTPS
+API, gated by the same Bearer token — so through the frp tunnel any server can
+reach it. Its TLS cert only lists 127.0.0.1 by default; to add the tunnel's
+public IP set `QUOTA_WATCH_CERT_EXTRA_SANS="IP:<public-ip>"` in the daemon's
+environment before first cert generation (the macOS launchd template already
+does), delete `~/.quota-watch/certs/server.{crt,key}`, and restart. The CA —
+and every device's pin — is unaffected. On the remote machine:
+
+```bash
+# trust ONLY this CA for node (additive — doesn't touch system roots)
+mkdir -p ~/.quota-watch && scp mac:~/.quota-watch/certs/ca.crt ~/.quota-watch/
+echo 'export NODE_EXTRA_CA_CERTS="$HOME/.quota-watch/ca.crt"' >> ~/.shell_env
+claude mcp add quota-watch --transport http https://<public-ip>:38737/mcp \
+  --header "Authorization: Bearer <api token from ~/.quota-watch/config.json>"
+```
+
 ## Run at login & public access (macOS)
 
 Register the daemon, web dashboard and an optional [frp](https://github.com/fatedier/frp)

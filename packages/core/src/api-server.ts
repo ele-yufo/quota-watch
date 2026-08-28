@@ -60,6 +60,13 @@ export interface ApiServerOptions {
   tls: { certPath: string; keyPath: string; caPath: string };
   /** CA SHA-256 fingerprint, handed out via /pair/claim so clients can pin. */
   caFingerprint?: string;
+  /**
+   * Optional MCP (streamable HTTP) handler mounted at /mcp. core stays free
+   * of the MCP SDK dependency — the CLI builds the server and passes this in.
+   * Called with the already-parsed JSON body; return false to fall through
+   * to 404. Bearer auth has already been enforced by the time this runs.
+   */
+  mcpHandler?: (req: IncomingMessage, res: ServerResponse, body: unknown) => Promise<boolean>;
 }
 
 export interface QuotaApiProvider {
@@ -289,6 +296,12 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
         await scheduler.pollNow(providerId);
         sendJson(res, 200, { ok: true, polled: providerId ?? "all" });
         return;
+      }
+
+      // ── MCP (streamable HTTP) — same Bearer gate as every other route. ──
+      if (url.pathname === "/mcp" && options.mcpHandler) {
+        const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+        if (await options.mcpHandler(req, res, body)) return;
       }
 
       sendJson(res, 404, { error: `no route: ${req.method} ${url.pathname}` });

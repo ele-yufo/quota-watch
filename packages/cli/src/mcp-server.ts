@@ -78,17 +78,9 @@ function windowView(
   return { ...w, asOf: w.timestamp, prediction };
 }
 
-export async function runMcpServer(): Promise<void> {
-  const db = new QuotaDB(); // default ~/.quota-watch/data.db
-
-  // One ledger scan so token answers are fresh even if the daemon is down
-  // (short sync writes; WAL arbitrates with the daemon).
-  try {
-    scanSessionLogs(db);
-  } catch {
-    /* ledger is best-effort */
-  }
-
+export function createMcpServer(db: QuotaDB): McpServer {
+  // NOTE: no ledger scan here — stdio mode scans once at startup, the daemon
+  // scans on a 5-min timer; scanning per HTTP request would be wasteful.
   const server = new McpServer({
     name: 'quota-watch',
     version: '0.1.0',
@@ -247,6 +239,21 @@ export async function runMcpServer(): Promise<void> {
     },
   );
 
+  return server;
+}
+
+export async function runMcpServer(): Promise<void> {
+  const db = new QuotaDB(); // default ~/.quota-watch/data.db
+
+  // One ledger scan so token answers are fresh even if the daemon is down
+  // (short sync writes; WAL arbitrates with the daemon).
+  try {
+    scanSessionLogs(db);
+  } catch {
+    /* ledger is best-effort */
+  }
+
+  const server = createMcpServer(db);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

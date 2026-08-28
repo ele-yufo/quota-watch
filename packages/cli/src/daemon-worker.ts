@@ -34,6 +34,8 @@ import {
 } from '@quota-watch/core';
 import type { AlertNotifier, AlertMessage } from '@quota-watch/core';
 import type { Server } from 'node:http';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createMcpServer } from './mcp-server.js';
 
 // ── Paths ──────────────────────────────────────────────────────────────
 
@@ -193,6 +195,17 @@ async function main(): Promise<void> {
       token: appConfig.api.token,
       tls: { certPath: tls.certPath, keyPath: tls.keyPath, caPath: tls.caPath },
       caFingerprint: tls.caFingerprint,
+      // Streamable HTTP MCP at /mcp (stateless — one transport per request),
+      // so harnesses on OTHER machines can query quota over the frp tunnel.
+      // Local harnesses should prefer `quota-watch mcp` (stdio).
+      mcpHandler: async (req, res, body) => {
+        const server = createMcpServer(db);
+        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        res.on('close', () => { void transport.close(); void server.close(); });
+        await server.connect(transport);
+        await transport.handleRequest(req, res, body as never);
+        return true;
+      },
     });
     log(
       'INFO',
