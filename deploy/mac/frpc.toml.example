@@ -32,12 +32,15 @@ localIP    = "127.0.0.1"
 localPort  = 3737
 remotePort = 3737                 # phone dials  https://YOUR_SERVER:3737
 
-# ── web dashboard (OPTIONAL — delete this block to keep the web local) ────
-# The web dashboard has NO auth; exposing it makes your quota view public to
-# anyone who hits this port. Remove this block if you only want iOS pairing.
-[[proxies]]
-name       = "quota-web"
-type       = "tcp"
-localIP    = "127.0.0.1"
-localPort  = 3000
-remotePort = 3000                 # browse  http://YOUR_SERVER:3000
+# ── web dashboard (DISABLED by default — uncomment only if you understand the risk) ──
+# WARNING: the web dashboard has NO authentication AT ALL, and its API routes
+# are READ-WRITE: anyone reaching this port can DELETE your providers
+# (/api/providers), trigger polls (/api/daemon/poll), and read your local auth
+# scan (/api/auth/scan) — not just view your quota. Do not expose it publicly.
+# If you need remote web access, put it behind an authenticating reverse proxy.
+#[[proxies]]
+#name       = "quota-web"
+#type       = "tcp"
+#localIP    = "127.0.0.1"
+#localPort  = 3000
+#remotePort = 3000                 # browse  http://YOUR_SERVER:3000

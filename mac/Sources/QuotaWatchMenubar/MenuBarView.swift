@@ -49,7 +49,15 @@ struct MenuBarView: View {
             Text("quota-watch")
                 .font(.headline)
             Spacer()
-            if let lastUpdated = store.lastUpdated {
+            if daemonIsStale {
+                // lastUpdated 记的是菜单栏上次读库时间，不是数据新鲜度 —
+                // daemon 死了它照样每秒更新。用 provider_poll_state 里最晚的
+                // 一次 poll 判活：最慢的合法轮询是 Claude 的 5 分钟地板，
+                // 6 分钟没动静才判 daemon 停（误报比漏报更伤信任）。
+                Label("daemon 未在轮询", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if let lastUpdated = store.lastUpdated {
                 Text(lastUpdated, style: .relative)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -58,6 +66,14 @@ struct MenuBarView: View {
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 8)
+    }
+
+    /// True when the DB has snapshots but the newest poll is >6min old (or the
+    /// daemon has never polled at all). 6min > Claude's 5min poll floor.
+    private var daemonIsStale: Bool {
+        guard !store.providerGroups.isEmpty, store.errorMessage == nil else { return false }
+        guard let lastPoll = store.lastPollAt else { return true }
+        return Date().timeIntervalSince(lastPoll) > 360
     }
 
     private func errorBanner(_ message: String) -> some View {

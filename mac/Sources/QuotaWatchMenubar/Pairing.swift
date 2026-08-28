@@ -27,6 +27,9 @@ final class PairingModel: ObservableObject {
 
     private var timer: Timer?
     private var expiresAt: Date?
+    /// Monotonic counter so a late response from a superseded start() can't
+    /// clobber the current session's code/QR/error state.
+    private var generation = 0
 
     /// TLS: the daemon API is HTTPS with a local CA. This session trusts only
     /// that CA (anchor-only), never the system bundle.
@@ -38,12 +41,24 @@ final class PairingModel: ObservableObject {
     /// Begin a pairing session — reads config, resolves the LAN IP, asks the
     /// daemon for a code, and builds the QR.
     func start() {
+        guard !isLoading else { return } // double-click while a request is in flight
+        guard let lan = lanIPv4() else {
+            // Pairing is LAN-only: a QR carrying 127.0.0.1 makes the phone dial
+            // itself and fail mysteriously. Refuse instead.
+            error = "未检测到局域网地址（网线/Wi-Fi 均未连接？），无法配对"
+            return
+        }
+        generation += 1
         let config = loadConfig()
         port = config.port
-        host = lanIPv4() ?? "127.0.0.1"
+        host = lan
         error = nil
+        code = nil
+        qrImage = nil
+        caFingerprint = ""
+        isExpired = false
         isLoading = true
-        Task { await requestCode(config) }
+        Task { await requestCode(config, generation: generation) }
     }
 
     func stop() {
@@ -60,8 +75,8 @@ final class PairingModel: ObservableObject {
 
     // MARK: - Daemon
 
-    private func requestCode(_ config: DaemonConfig) async {
-        defer { isLoading = false }
+    private func requestCode(_ config: DaemonConfig, generation: Int) async {
+        defer { if generation == self.generation { isLoading = false } }
         guard let url = URL(string: "https://127.0.0.1:\(config.port)/pair/start") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -77,12 +92,27 @@ final class PairingModel: ObservableObject {
             let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
             daemonSession = session
             let (data, resp) = try await session.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            guard generation == self.generation else { return } // superseded by a newer start()
+            guard let http = resp as? HTTPURLResponse else {
+                error = "无法获取配对码 — daemon 是否在运行？"
+                return
+            }
+            guard http.statusCode == 200 else {
+                switch http.statusCode {
+                case 401, 403:
+                    error = "daemon 拒绝了配对请求（401）— ~/.quota-watch/config.json 里的 token 变了？"
+                case 404:
+                    error = "daemon 版本太旧，没有配对接口 — 升级并重启 daemon"
+                default:
+                    error = "无法获取配对码（HTTP \(http.statusCode)）"
+                }
+                return
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let code = json["code"] as? String,
                   let expMs = json["expiresAt"] as? Double
             else {
-                error = "无法获取配对码 — daemon 是否在运行？"
+                error = "daemon 返回了无法解析的配对响应"
                 return
             }
             self.code = code
@@ -98,6 +128,7 @@ final class PairingModel: ObservableObject {
             qrImage = makeQR(payload)
             startCountdown()
         } catch {
+            guard generation == self.generation else { return }
             self.error = "连接 daemon 失败：\(error.localizedDescription)"
         }
     }
@@ -116,28 +147,34 @@ final class PairingModel: ObservableObject {
         return DaemonConfig(port: port, token: (token?.isEmpty == false) ? token : nil)
     }
 
-    /// First non-loopback IPv4 address, preferring en0 (Wi-Fi/Ethernet) — the
-    /// address the phone on the same LAN dials.
+    /// The LAN address the phone dials: en0 wins outright; otherwise the FIRST
+    /// usable candidate. Never let a later interface overwrite an earlier one —
+    /// enumeration order puts VPN (utun) and VM bridges (bridge100/vboxnet)
+    /// last, and those addresses are unreachable from the phone.
     private func lanIPv4() -> String? {
-        var address: String?
+        var firstCandidate: String?
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return nil }
         defer { freeifaddrs(ifaddr) }
         for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let flags = Int32(ptr.pointee.ifa_flags)
             guard (flags & IFF_UP) == IFF_UP, (flags & IFF_LOOPBACK) == 0 else { continue }
+            // Tunnel/virtual interfaces are never the LAN the phone is on.
+            let ifName = String(cString: ptr.pointee.ifa_name)
+            if ifName.hasPrefix("utun") || ifName.hasPrefix("bridge") || ifName.hasPrefix("vmnet")
+                || ifName.hasPrefix("vboxnet") || ifName.hasPrefix("awdl") || ifName.hasPrefix("llw") { continue }
             // ifa_addr is nullable — some interface entries have no address;
             // dereferencing it unconditionally crashes. Guard first.
             guard let addr = ptr.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) else { continue }
             var buf = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            getnameinfo(addr, socklen_t(addr.pointee.sa_len),
-                        &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST)
+            guard getnameinfo(addr, socklen_t(addr.pointee.sa_len),
+                              &buf, socklen_t(buf.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
             let ip = String(cString: buf)
             if ip.hasPrefix("169.254") { continue } // link-local
-            address = ip
-            if String(cString: ptr.pointee.ifa_name) == "en0" { break }
+            if ifName == "en0" { return ip }
+            if firstCandidate == nil { firstCandidate = ip }
         }
-        return address
+        return firstCandidate
     }
 
     // MARK: - Countdown + QR

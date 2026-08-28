@@ -8,6 +8,10 @@ class QuotaStore: ObservableObject {
     @Published var providerGroups: [ProviderGroup] = []
     @Published var worstItem: QuotaItem? = nil
     @Published var lastUpdated: Date? = nil
+    /// Newest last_poll_at across providers — daemon liveness. Snapshot
+    /// timestamps can't prove freshness (change-only writes keep them old by
+    /// design); this can. Nil when the daemon has never polled.
+    @Published var lastPollAt: Date? = nil
     @Published var errorMessage: String? = nil
 
     private var timer: Timer?
@@ -109,7 +113,12 @@ class QuotaStore: ObservableObject {
     // MARK: - Refresh
 
     func refresh() {
-        let items = readLatestSnapshots()
+        // nil = read failed (DB missing/corrupt/busy); [] = read OK, no data yet
+        guard let result = readLatestSnapshots() else {
+            return // errorMessage already set by the failing read
+        }
+        errorMessage = nil
+        let (items, pollAt) = result
 
         // Build the popover's provider groups from the SAME items that power the
         // menu-bar label — so the two can never disagree (an earlier bug read
@@ -118,9 +127,14 @@ class QuotaStore: ObservableObject {
         providerGroups = Self.buildGroups(from: items)
         worstItem = items.min(by: { $0.remainingPct < $1.remainingPct })
         lastUpdated = Date()
-        if !items.isEmpty { errorMessage = nil }
+        lastPollAt = pollAt
 
-        notifyLowQuota(items)
+        // A partial read (e.g. hitting the daemon's hourly WAL checkpoint)
+        // must not seed the alert baseline — a later complete read would look
+        // like a burst of new threshold crossings.
+        if !items.isEmpty || pollAt != nil {
+            notifyLowQuota(items)
+        }
     }
 
     /// Edge-triggered, once-per-period low-quota notifications. Fires a single
@@ -221,12 +235,24 @@ class QuotaStore: ObservableObject {
                 return nil
             }
         }
+        // The daemon's hourly maintenance (DELETE + WAL checkpoint) can hold the
+        // write lock — wait briefly instead of erroring or returning half a table.
+        if let db { sqlite3_busy_timeout(db, 3000) }
         return db
     }
 
-    /// Read latest snapshot per provider+window from SQLite.
-    private func readLatestSnapshots() -> [QuotaItem] {
-        guard let db = openDatabase() else { return [] }
+    /// ISO-8601 (with optional fractional seconds) → Date.
+    private static func parseTimestamp(_ s: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: s) { return d }
+        return ISO8601DateFormatter().date(from: s)
+    }
+
+    /// Read latest snapshot per provider+window from SQLite, plus the daemon's
+    /// newest poll timestamp. Returns nil on read failure (errorMessage set).
+    private func readLatestSnapshots() -> (items: [QuotaItem], lastPollAt: Date?)? {
+        guard let db = openDatabase() else { return nil }
         defer { sqlite3_close(db) }
 
         let sql = """
@@ -245,12 +271,21 @@ class QuotaStore: ObservableObject {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             errorMessage = "SQL prepare failed: \(String(cString: sqlite3_errmsg(db)))"
-            return []
+            return nil
         }
         defer { sqlite3_finalize(stmt) }
 
         var items: [QuotaItem] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        while true {
+            let rc = sqlite3_step(stmt)
+            if rc == SQLITE_DONE { break }
+            // BUSY/IOERR here means the rows so far are a PREFIX, not the full
+            // set — treating it as done would flash partial data and poison the
+            // alert-seeding baseline. Fail the whole read instead.
+            guard rc == SQLITE_ROW else {
+                errorMessage = "SQL read failed: \(String(cString: sqlite3_errmsg(db)))"
+                return nil
+            }
             let providerId = String(cString: sqlite3_column_text(stmt, 0))
             let displayName = String(cString: sqlite3_column_text(stmt, 1))
             let providerType = String(cString: sqlite3_column_text(stmt, 2))
@@ -279,7 +314,19 @@ class QuotaStore: ObservableObject {
             ))
         }
 
-        return items
+        // Daemon liveness: newest poll across providers (change-only snapshots
+        // can't prove freshness — their timestamps stay old by design).
+        var lastPoll: Date? = nil
+        var pollStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT MAX(last_poll_at) FROM provider_poll_state", -1, &pollStmt, nil) == SQLITE_OK {
+            if sqlite3_step(pollStmt) == SQLITE_ROW,
+               let text = sqlite3_column_text(pollStmt, 0) {
+                lastPoll = Self.parseTimestamp(String(cString: text))
+            }
+            sqlite3_finalize(pollStmt)
+        }
+
+        return (items, lastPoll)
     }
 
     // MARK: - Formatting helpers
