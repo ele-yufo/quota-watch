@@ -198,6 +198,23 @@ describe('codexProvider', () => {
     expect(result.error).toContain('no rate_limit');
   });
 
+  it('falls back to slot labels when limit_window_seconds is absent', async () => {
+    mockFetch({
+      body: {
+        plan_type: 'plus',
+        // legacy shape: no span field — primary must stay session, secondary week
+        rate_limit: {
+          primary_window: { used_percent: 40, reset_at: RESET_EPOCH },
+          secondary_window: { used_percent: 12, reset_at: RESET_EPOCH },
+        },
+      },
+    });
+    const result = await codexProvider.fetchQuota(makeConfig());
+    expect(result.status).toBe('ok');
+    expect(result.windows.find((w) => w.kind === 'session')!.used).toBe(40);
+    expect(result.windows.find((w) => w.kind === 'week')!.used).toBe(12);
+  });
+
   it('handles missing reset_at gracefully', async () => {
     mockFetch({
       body: {

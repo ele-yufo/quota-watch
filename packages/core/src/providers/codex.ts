@@ -34,10 +34,19 @@ const toIso = (epochSec: number | undefined): string | null =>
 
 // The API no longer guarantees primary=5h/secondary=7d (observed live:
 // primary_window with limit_window_seconds=604800 and secondary_window=null),
-// so derive the label/kind from the actual span instead of the slot.
-function windowMeta(w: CodexWindow): { name: string; kind: 'session' | 'week' } {
+// so prefer the actual span; when the span is absent, fall back to the slot
+// (primary→session, secondary→week) as the pre-change shape did.
+function windowMeta(
+  w: CodexWindow,
+  slot: 'primary' | 'secondary',
+): { name: string; kind: 'session' | 'week' } {
   const secs = w.limit_window_seconds;
-  return secs !== undefined && secs <= 24 * 3600
+  if (typeof secs === 'number') {
+    return secs <= 24 * 3600
+      ? { name: 'session (5h)', kind: 'session' }
+      : { name: 'weekly (7d)', kind: 'week' };
+  }
+  return slot === 'primary'
     ? { name: 'session (5h)', kind: 'session' }
     : { name: 'weekly (7d)', kind: 'week' };
 }
@@ -70,10 +79,13 @@ export const codexProvider: ProviderAdapter = {
     if (!rl) {
       return quotaError('codex', config, 'error', 'usage response had no rate_limit object');
     }
-    const windows = [rl.primary_window, rl.secondary_window]
-      .filter((w): w is CodexWindow => w !== null)
-      .map((w) => {
-        const meta = windowMeta(w);
+    const windows = ([
+      ['primary', rl.primary_window],
+      ['secondary', rl.secondary_window],
+    ] as const)
+      .filter((pair): pair is readonly ['primary' | 'secondary', CodexWindow] => pair[1] !== null)
+      .map(([slot, w]) => {
+        const meta = windowMeta(w, slot);
         return percentWindow(meta.name, meta.kind, w.used_percent, toIso(w.reset_at));
       });
 

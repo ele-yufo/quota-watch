@@ -85,12 +85,18 @@ function parseClaudeOAuthJson(raw: string): ResolvedTokens | null {
  * there may be nobody to click "Allow".
  */
 let keychainCache: { tokens: ResolvedTokens | null; readAt: number } | null = null;
-const KEYCHAIN_CACHE_MS = 60_000;
+// Success re-reads every 60s so token rotation is picked up quickly; failures
+// back off 30min — a blocked `security` call stalls the daemon's event loop
+// for up to its 5s timeout, and providers poll every 10-60s, so a short
+// failure cache would freeze the API roughly once a minute.
+const KEYCHAIN_OK_MS = 60_000;
+const KEYCHAIN_FAIL_MS = 30 * 60_000;
 
 function readClaudeKeychainCredentials(): ResolvedTokens | null {
   if (platform() !== "darwin") return null;
-  if (keychainCache && Date.now() - keychainCache.readAt < KEYCHAIN_CACHE_MS) {
-    return keychainCache.tokens;
+  if (keychainCache) {
+    const ttl = keychainCache.tokens ? KEYCHAIN_OK_MS : KEYCHAIN_FAIL_MS;
+    if (Date.now() - keychainCache.readAt < ttl) return keychainCache.tokens;
   }
   let tokens: ResolvedTokens | null = null;
   try {
