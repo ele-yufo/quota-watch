@@ -72,7 +72,7 @@ export function httpStatusToQuotaStatus(status: number): 'auth_expired' | 'error
 
 export type FetchJsonResult<T> =
   | { ok: true; status: number; data: T }
-  | { ok: false; status: number | null; error: string };
+  | { ok: false; status: number | null; error: string; retryAfterMs?: number };
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -90,7 +90,23 @@ export async function fetchJson<T>(
   try {
     const res = await globalThis.fetch(url, { ...init, signal: controller.signal });
     if (!res.ok) {
-      return { ok: false, status: res.status, error: `HTTP ${res.status}: ${res.statusText}` };
+      // Retry-After may be delta-seconds or an HTTP date — support both.
+      const raw = res.headers?.get?.('retry-after');
+      let retryAfterMs: number | undefined;
+      if (raw) {
+        const sec = Number(raw);
+        if (Number.isFinite(sec)) retryAfterMs = sec * 1000;
+        else {
+          const at = Date.parse(raw);
+          if (Number.isFinite(at)) retryAfterMs = Math.max(0, at - Date.now());
+        }
+      }
+      return {
+        ok: false,
+        status: res.status,
+        error: `HTTP ${res.status}: ${res.statusText}`,
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      };
     }
     try {
       return { ok: true, status: res.status, data: (await res.json()) as T };

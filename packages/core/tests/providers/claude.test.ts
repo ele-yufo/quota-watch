@@ -140,6 +140,71 @@ describe('claudeProvider', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('backoff grows exponentially on consecutive 429s, Retry-After can only lengthen it, success resets', async () => {
+    const { _cooldownRemainingMs } = await import('../../src/providers/claude.js');
+    const cfg = makeConfig({ id: 'claude-bo', credentials: { token: 't' } });
+    const r429 = { ok: false, status: 429, statusText: 'Too Many Requests' };
+
+    // 1st 429 → ~180s base
+    fetchSpy.mockResolvedValueOnce(r429);
+    await claudeProvider.fetchQuota(cfg);
+    const first = _cooldownRemainingMs('claude-bo');
+    expect(first).toBeGreaterThan(100_000);
+    expect(first).toBeLessThanOrEqual(180_000);
+
+    // 2nd consecutive 429 on the SAME id (after the first cooldown lapses) → ~360s
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 181_000);
+    fetchSpy.mockResolvedValueOnce(r429);
+    await claudeProvider.fetchQuota(cfg);
+    const second = _cooldownRemainingMs('claude-bo'); // measure inside fake time
+    expect(second).toBeGreaterThan(300_000);
+    expect(second).toBeLessThanOrEqual(360_000);
+    vi.useRealTimers();
+
+    // Retry-After SHORTER than backoff must not shorten the wait (no 1s poll loop)
+    fetchSpy.mockResolvedValueOnce({
+      ok: false, status: 429, statusText: 'Too Many Requests',
+      headers: { get: (h: string) => (h === 'retry-after' ? '1' : null) },
+    });
+    await claudeProvider.fetchQuota(makeConfig({ id: 'claude-ra1', credentials: { token: 't' } }));
+    expect(_cooldownRemainingMs('claude-ra1')).toBeGreaterThan(100_000);
+
+    // Retry-After LONGER than backoff wins
+    fetchSpy.mockResolvedValueOnce({
+      ok: false, status: 429, statusText: 'Too Many Requests',
+      headers: { get: (h: string) => (h === 'retry-after' ? '900' : null) },
+    });
+    await claudeProvider.fetchQuota(makeConfig({ id: 'claude-ra2', credentials: { token: 't' } }));
+    expect(_cooldownRemainingMs('claude-ra2')).toBeGreaterThan(800_000);
+
+    // HTTP-date Retry-After is understood too
+    fetchSpy.mockResolvedValueOnce({
+      ok: false, status: 429, statusText: 'Too Many Requests',
+      headers: { get: (h: string) => (h === 'retry-after' ? new Date(Date.now() + 900_000).toUTCString() : null) },
+    });
+    await claudeProvider.fetchQuota(makeConfig({ id: 'claude-ra3', credentials: { token: 't' } }));
+    expect(_cooldownRemainingMs('claude-ra3')).toBeGreaterThan(800_000);
+
+    // success after a real 429 clears the streak on that id
+    _resetCooldowns();
+    fetchSpy.mockResolvedValueOnce(r429);
+    await claudeProvider.fetchQuota(cfg);
+    expect(_cooldownRemainingMs('claude-bo')).toBeGreaterThan(0);
+    _resetCooldowns(); // drop the cooldown so the success fetch can run
+    fetchSpy.mockResolvedValueOnce({
+      ok: true, status: 200, json: () => Promise.resolve(mockUsageResponse),
+    });
+    const ok = await claudeProvider.fetchQuota(cfg);
+    expect(ok.status).toBe('ok');
+    expect(_cooldownRemainingMs('claude-bo')).toBe(0);
+
+    // …and a fresh 429 on that id starts back at the base (~180s), proving the streak reset
+    fetchSpy.mockResolvedValueOnce(r429);
+    await claudeProvider.fetchQuota(cfg);
+    expect(_cooldownRemainingMs('claude-bo')).toBeLessThanOrEqual(180_000);
+  });
+
   it('different provider instances have independent cooldowns', async () => {
     fetchSpy.mockResolvedValue({
       ok: false,
