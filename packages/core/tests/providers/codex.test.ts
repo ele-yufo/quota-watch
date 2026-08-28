@@ -22,8 +22,13 @@ function makeConfig(overrides?: Partial<ProviderConfig>): ProviderConfig {
 }
 
 /** build a rate-limit window mock; reset_at defaults to the fixed epoch */
-function win(used_percent: number, reset_at: number | undefined = RESET_EPOCH) {
-  return { used_percent, reset_at };
+function win(used_percent: number, reset_at: number | undefined = RESET_EPOCH, limit_window_seconds = 5 * 3600) {
+  return { used_percent, reset_at, limit_window_seconds };
+}
+
+/** weekly-span window (the API labels nothing — span is the only signal) */
+function weekWin(used_percent: number, reset_at: number | undefined = RESET_EPOCH) {
+  return { used_percent, reset_at, limit_window_seconds: 7 * 24 * 3600 };
 }
 
 function mockFetch(response: { status?: number; ok?: boolean; body?: unknown; statusText?: string }) {
@@ -59,7 +64,7 @@ describe('codexProvider', () => {
     mockFetch({
       body: {
         plan_type: 'plus',
-        rate_limit: { primary_window: win(65), secondary_window: win(21) },
+        rate_limit: { primary_window: win(65), secondary_window: weekWin(21) },
       },
     });
     const result = await codexProvider.fetchQuota(makeConfig());
@@ -116,7 +121,7 @@ describe('codexProvider', () => {
 
   it('sends correct Authorization header', async () => {
     const mock = mockFetch({
-      body: { plan_type: 'plus', rate_limit: { primary_window: win(0), secondary_window: win(0) } },
+      body: { plan_type: 'plus', rate_limit: { primary_window: win(0), secondary_window: weekWin(0) } },
     });
     await codexProvider.fetchQuota(makeConfig({ credentials: { token: 'my-secret' } }));
     expect(mock).toHaveBeenCalledWith(
@@ -129,7 +134,7 @@ describe('codexProvider', () => {
 
   it('handles zero percent usage', async () => {
     mockFetch({
-      body: { plan_type: 'plus', rate_limit: { primary_window: win(0), secondary_window: win(0) } },
+      body: { plan_type: 'plus', rate_limit: { primary_window: win(0), secondary_window: weekWin(0) } },
     });
     const result = await codexProvider.fetchQuota(makeConfig());
     expect(result.status).toBe('ok');
@@ -141,7 +146,7 @@ describe('codexProvider', () => {
 
   it('handles 100% usage', async () => {
     mockFetch({
-      body: { plan_type: 'pro', rate_limit: { primary_window: win(100), secondary_window: win(100) } },
+      body: { plan_type: 'pro', rate_limit: { primary_window: win(100), secondary_window: weekWin(100) } },
     });
     const result = await codexProvider.fetchQuota(makeConfig());
     expect(result.status).toBe('ok');
@@ -154,10 +159,43 @@ describe('codexProvider', () => {
 
   it('uses config.id as account', async () => {
     mockFetch({
-      body: { plan_type: 'plus', rate_limit: { primary_window: win(10), secondary_window: win(5) } },
+      body: { plan_type: 'plus', rate_limit: { primary_window: win(10), secondary_window: weekWin(5) } },
     });
     const result = await codexProvider.fetchQuota(makeConfig({ id: 'my-codex-account' }));
     expect(result.account).toBe('my-codex-account');
+  });
+
+  it('handles null secondary_window (observed live on Pro accounts)', async () => {
+    mockFetch({
+      body: {
+        plan_type: 'pro',
+        // live shape 2026-08-28: the 7d window arrives as PRIMARY and
+        // secondary_window is null — must not crash, must label by span
+        rate_limit: { primary_window: weekWin(1), secondary_window: null },
+      },
+    });
+    const result = await codexProvider.fetchQuota(makeConfig());
+    expect(result.status).toBe('ok');
+    expect(result.windows).toHaveLength(1);
+    expect(result.windows[0]!.name).toBe('weekly (7d)');
+    expect(result.windows[0]!.kind).toBe('week');
+    expect(result.windows[0]!.used).toBe(1);
+  });
+
+  it('returns error when both windows are null', async () => {
+    mockFetch({
+      body: { plan_type: 'pro', rate_limit: { primary_window: null, secondary_window: null } },
+    });
+    const result = await codexProvider.fetchQuota(makeConfig());
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('no rate-limit windows');
+  });
+
+  it('returns error when rate_limit itself is null', async () => {
+    mockFetch({ body: { plan_type: 'pro', rate_limit: null } });
+    const result = await codexProvider.fetchQuota(makeConfig());
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('no rate_limit');
   });
 
   it('handles missing reset_at gracefully', async () => {
@@ -165,8 +203,8 @@ describe('codexProvider', () => {
       body: {
         plan_type: 'plus',
         rate_limit: {
-          primary_window: { used_percent: 30 },
-          secondary_window: { used_percent: 10 },
+          primary_window: { used_percent: 30, limit_window_seconds: 5 * 3600 },
+          secondary_window: { used_percent: 10, limit_window_seconds: 7 * 24 * 3600 },
         },
       },
     });

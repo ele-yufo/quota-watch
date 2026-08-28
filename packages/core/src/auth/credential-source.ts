@@ -8,6 +8,7 @@
  * CLI's token store (the user runs `antigravity-usage login` once).
  * The TokenManager layers proactive refresh on top of this.
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
@@ -54,20 +55,56 @@ function readWithCache(
 /** Claude Code's ~/.claude/.credentials.json — { claudeAiOauth: {accessToken,refreshToken,expiresAt} } */
 export function readClaudeCliCredentials(): ResolvedTokens | null {
   const path = join(homedir(), ".claude", ".credentials.json");
-  return readWithCache(path, (raw) => {
-    const d = JSON.parse(raw) as Record<string, unknown>;
-    const oauth = (d.claudeAiOauth ?? d) as Record<string, unknown>;
-    const accessToken = oauth.accessToken;
-    if (typeof accessToken !== "string" || !accessToken) return null;
-    return {
-      accessToken,
-      refreshToken:
-        typeof oauth.refreshToken === "string" ? oauth.refreshToken : undefined,
-      expiresAt:
-        typeof oauth.expiresAt === "number" ? oauth.expiresAt : undefined,
-      source: "claude-cli",
-    };
-  });
+  return readWithCache(path, parseClaudeOAuthJson) ?? readClaudeKeychainCredentials();
+}
+
+function parseClaudeOAuthJson(raw: string): ResolvedTokens | null {
+  const d = JSON.parse(raw) as Record<string, unknown>;
+  const oauth = (d.claudeAiOauth ?? d) as Record<string, unknown>;
+  const accessToken = oauth.accessToken;
+  if (typeof accessToken !== "string" || !accessToken) return null;
+  return {
+    accessToken,
+    refreshToken:
+      typeof oauth.refreshToken === "string" ? oauth.refreshToken : undefined,
+    expiresAt:
+      typeof oauth.expiresAt === "number" ? oauth.expiresAt : undefined,
+    source: "claude-cli",
+  };
+}
+
+/**
+ * macOS fallback: Claude Code stores its OAuth blob in the login Keychain
+ * (service "Claude Code-credentials") instead of the credentials file. The
+ * payload is the same JSON shape. Without this, a Mac user who is fully
+ * logged in reads as not_configured and the scheduler falls back to stale
+ * DB credentials.
+ *
+ * First read from a new binary triggers a one-time macOS keychain consent
+ * prompt; `security` blocks on it, so a timeout is mandatory — under launchd
+ * there may be nobody to click "Allow".
+ */
+let keychainCache: { tokens: ResolvedTokens | null; readAt: number } | null = null;
+const KEYCHAIN_CACHE_MS = 60_000;
+
+function readClaudeKeychainCredentials(): ResolvedTokens | null {
+  if (platform() !== "darwin") return null;
+  if (keychainCache && Date.now() - keychainCache.readAt < KEYCHAIN_CACHE_MS) {
+    return keychainCache.tokens;
+  }
+  let tokens: ResolvedTokens | null = null;
+  try {
+    const raw = execFileSync(
+      "security",
+      ["find-generic-password", "-s", "Claude Code-credentials", "-w"],
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 },
+    ).trim();
+    tokens = parseClaudeOAuthJson(raw);
+  } catch {
+    tokens = null;
+  }
+  keychainCache = { tokens, readAt: Date.now() };
+  return tokens;
 }
 
 /** Codex CLI's ~/.codex/auth.json — { tokens: {access_token, refresh_token, id_token, account_id} } */

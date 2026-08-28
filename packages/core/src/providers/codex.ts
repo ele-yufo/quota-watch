@@ -17,8 +17,10 @@ interface CodexUsageResponse {
   rate_limit: {
     allowed?: boolean;
     limit_reached?: boolean;
-    primary_window: CodexWindow;
-    secondary_window: CodexWindow;
+    // either window may be null — e.g. a Pro account currently reports only
+    // the 7d window, with secondary_window: null
+    primary_window: CodexWindow | null;
+    secondary_window: CodexWindow | null;
   };
   rate_limit_reset_credits?: {
     available_count: number;
@@ -29,6 +31,16 @@ const API_URL = 'https://chatgpt.com/backend-api/wham/usage';
 
 const toIso = (epochSec: number | undefined): string | null =>
   typeof epochSec === 'number' ? new Date(epochSec * 1000).toISOString() : null;
+
+// The API no longer guarantees primary=5h/secondary=7d (observed live:
+// primary_window with limit_window_seconds=604800 and secondary_window=null),
+// so derive the label/kind from the actual span instead of the slot.
+function windowMeta(w: CodexWindow): { name: string; kind: 'session' | 'week' } {
+  const secs = w.limit_window_seconds;
+  return secs !== undefined && secs <= 24 * 3600
+    ? { name: 'session (5h)', kind: 'session' }
+    : { name: 'weekly (7d)', kind: 'week' };
+}
 
 export const codexProvider: ProviderAdapter = {
   id: 'codex',
@@ -54,11 +66,20 @@ export const codexProvider: ProviderAdapter = {
       return quotaError('codex', config, 'error', res.error);
     }
 
-    const { primary_window: primary, secondary_window: secondary } = res.data.rate_limit;
-    const windows = [
-      percentWindow('session (5h)', 'session', primary.used_percent, toIso(primary.reset_at)),
-      percentWindow('weekly (7d)', 'week', secondary.used_percent, toIso(secondary.reset_at)),
-    ];
+    const rl = res.data.rate_limit;
+    if (!rl) {
+      return quotaError('codex', config, 'error', 'usage response had no rate_limit object');
+    }
+    const windows = [rl.primary_window, rl.secondary_window]
+      .filter((w): w is CodexWindow => w !== null)
+      .map((w) => {
+        const meta = windowMeta(w);
+        return percentWindow(meta.name, meta.kind, w.used_percent, toIso(w.reset_at));
+      });
+
+    if (windows.length === 0) {
+      return quotaError('codex', config, 'error', 'usage response contained no rate-limit windows');
+    }
 
     return quotaOk('codex', config.id, res.data.plan_type, windows);
   },
