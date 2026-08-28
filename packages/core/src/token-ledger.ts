@@ -127,7 +127,7 @@ export function parseCodexLine(
 // ── File discovery ──────────────────────────────────────────────────────
 
 /** Recursively collect *.jsonl under dir (depth-capped, symlink-free). */
-export function collectJsonlFiles(dir: string, maxDepth = 3): string[] {
+export function collectJsonlFiles(dir: string, maxDepth = 5): string[] {
   const out: string[] = [];
   const walk = (d: string, depth: number): void => {
     if (depth > maxDepth) return;
@@ -162,6 +162,9 @@ export function codexSessionsDir(): string {
 
 // ── Incremental scan ────────────────────────────────────────────────────
 
+/** Per-file per-pass byte cap — see readTail. */
+const MAX_SCAN_CHUNK = 8 * 1024 * 1024;
+
 export interface ScanResult {
   filesSeen: number;
   eventsAdded: number;
@@ -176,8 +179,11 @@ export function readTail(
   const size = statSync(path).size;
   // truncated/rotated file → restart from the top
   const start = offset > size ? 0 : offset;
-  const len = size - start;
-  if (len === 0) return { lines: [], newOffset: start };
+  // Bound one pass: a first-time scan of a 100MB session log must not become
+  // a 100MB Buffer + giant split() array. The offset persists, so the next
+  // scans chew through the backlog in chunks.
+  const len = Math.min(size - start, MAX_SCAN_CHUNK);
+  if (len <= 0) return { lines: [], newOffset: start };
 
   const fd = openSync(path, 'r');
   try {
@@ -185,9 +191,9 @@ export function readTail(
     readSync(fd, buf, 0, len, start);
     const text = buf.toString('utf-8');
     const lines = text.split('\n');
-    // A partial last line (writer mid-append) would fail JSON.parse and be
-    // lost forever with a naive offset — walk the offset back over it.
-    let newOffset = size;
+    // A partial last line (writer mid-append OR chunk boundary) would fail
+    // JSON.parse and be lost with a naive offset — walk the offset back.
+    let newOffset = start + len;
     if (!text.endsWith('\n')) {
       const partial = lines.pop()!;
       newOffset -= Buffer.byteLength(partial);
@@ -262,13 +268,21 @@ export interface WindowTokenEstimate {
 export function estimateWindowTokens(
   db: QuotaDB,
   provider: string,
-  window: { kind: string; name: string; usedPct: number; remainingPct: number },
+  window: { kind: string; name: string; usedPct: number; remainingPct: number; resetAt?: string | null },
   now: Date = new Date(),
 ): WindowTokenEstimate | null {
   const seconds = WINDOW_SECONDS[window.kind];
   if (!seconds) return null;
 
-  const since = new Date(now.getTime() - seconds * 1000).toISOString();
+  // Anchor to the ACTIVE window when resetAt is known (start = reset − span):
+  // a plain rolling lookback would count tokens the current window already
+  // forgave (session window started 2h ago ≠ last 5h).
+  let sinceMs = now.getTime() - seconds * 1000;
+  if (window.resetAt) {
+    const startMs = new Date(window.resetAt).getTime() - seconds * 1000;
+    if (startMs > sinceMs) sinceMs = startMs;
+  }
+  const since = new Date(sinceMs).toISOString();
   const agg = db.tokenUsageSince(provider, since);
   if (agg.events === 0) return null;
 

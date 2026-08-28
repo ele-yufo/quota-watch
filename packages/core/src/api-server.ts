@@ -183,6 +183,7 @@ export function buildTokensResponse(db: QuotaDB): TokensApiProvider[] {
           name: w.windowName,
           usedPct: w.total > 0 ? (w.used / w.total) * 100 : 0,
           remainingPct: w.remainingPct,
+          resetAt: w.resetAt,
         });
         return est ? [est] : [];
       });

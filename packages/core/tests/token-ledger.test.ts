@@ -125,6 +125,28 @@ describe('readTail', () => {
     writeFileSync(f, 'short\n');
     expect(readTail(f, 9999).newOffset).toBe(6);
   });
+
+  it('caps one pass at MAX_SCAN_CHUNK and resumes correctly across chunks', () => {
+    // Use many large lines to exceed 8MB without one giant line.
+    const f = join(dir, 'big.jsonl');
+    const line = `{"pad":"${'x'.repeat(999_000)}"}\n`; // ~1MB per line
+    for (let i = 0; i < 10; i++) appendFileSync(f, line);
+
+    let offset = 0;
+    let totalLines = 0;
+    let passes = 0;
+    while (true) {
+      const { lines, newOffset } = readTail(f, offset);
+      totalLines += lines.length;
+      passes++;
+      expect(newOffset).toBeGreaterThan(offset); // always makes progress
+      offset = newOffset;
+      if (offset >= statSync(f).size) break;
+      expect(passes).toBeLessThan(20); // sanity
+    }
+    expect(totalLines).toBe(10);
+    expect(passes).toBeGreaterThan(1); // actually chunked
+  });
 });
 
 describe('collectJsonlFiles', () => {
@@ -183,6 +205,33 @@ describe('token ledger in db + estimateWindowTokens', () => {
     expect(est!.estimatedBudgetTokens).toBe(2_000_000); // 800k / 40%
     expect(est!.estimatedRemainingTokens).toBe(1_200_000);
     expect(est!.burnRatePerHour).toBe(800_000); // 800k over 1h span
+  });
+
+  it('clamps the span to the active window when resetAt is known', () => {
+    const now = new Date();
+    // Active session window started 1h ago (resets in 4h). A rolling 5h
+    // lookback would also count the 3h-old event — the clamp must not.
+    db.insertTokenEvent({
+      sourceId: 'claude:old', provider: 'claude',
+      timestamp: new Date(now.getTime() - 3 * 3600_000).toISOString(), model: null,
+      inputTokens: 900_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 900_000,
+    });
+    db.insertTokenEvent({
+      sourceId: 'claude:new', provider: 'claude',
+      timestamp: new Date(now.getTime() - 30 * 60_000).toISOString(), model: null,
+      inputTokens: 100_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 100_000,
+    });
+
+    const resetAt = new Date(now.getTime() + 4 * 3600_000).toISOString();
+    const est = estimateWindowTokens(db, 'claude', {
+      kind: 'session', name: 's', usedPct: 50, remainingPct: 50, resetAt,
+    }, now);
+    expect(est!.consumedTokens).toBe(100_000); // only the event inside the active window
+
+    // unknown kind still returns null
+    expect(estimateWindowTokens(db, 'claude', {
+      kind: 'month', name: 'm', usedPct: 50, remainingPct: 50,
+    }, now)).toBeNull();
   });
 
   it('returns null without events, and null budget when usage ≈ 0', () => {
