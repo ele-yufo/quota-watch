@@ -5,9 +5,13 @@ import type { ProviderConfig } from '../../src/types.js';
 // The provider now tries the local IDE Connect-RPC path first; these tests
 // target the Google-API fallback, so local is mocked to "not running" by
 // default (the LOCAL describe below overrides with real payloads).
-const localMock = vi.hoisted(() => ({ fetchLocalUserStatus: vi.fn() }));
+const localMock = vi.hoisted(() => ({
+  fetchLocalUserStatus: vi.fn(),
+  fetchLocalQuotaSummary: vi.fn(),
+}));
 vi.mock('../../src/providers/antigravity-local.js', () => ({
   fetchLocalUserStatus: localMock.fetchLocalUserStatus,
+  fetchLocalQuotaSummary: localMock.fetchLocalQuotaSummary,
 }));
 
 function makeConfig(credentials: Record<string, string> = {}): ProviderConfig {
@@ -36,6 +40,7 @@ beforeEach(() => {
   fetchSpy = vi.fn();
   vi.stubGlobal('fetch', fetchSpy);
   localMock.fetchLocalUserStatus.mockRejectedValue(new Error('local IDE not running'));
+  localMock.fetchLocalQuotaSummary.mockRejectedValue(new Error('local IDE not running'));
 });
 
 afterEach(() => {
@@ -170,33 +175,40 @@ describe('antigravityProvider (native Cloud Code API)', () => {
 });
 
 describe('antigravityProvider (LOCAL mode)', () => {
-  it('maps local user status to family pools + monthly credits window', async () => {
-    localMock.fetchLocalUserStatus.mockResolvedValue({
-      email: 'ruby291464@gmail.com',
-      promptCredits: { used: 120, limit: 1000, remaining: 880 },
-      models: [
-        { modelId: 'gemini-3-flash', label: 'Gemini 3 Flash', remainingFraction: 0.9, resetTime: '2026-08-28T15:00:00Z' },
-        { modelId: 'gemini-3-pro', label: 'Gemini 3 Pro', remainingFraction: 0.4, resetTime: '2026-08-28T15:00:00Z' },
-        { modelId: 'claude-sonnet', label: 'Claude Sonnet 4.5', remainingFraction: 0.75, resetTime: '2026-08-28T16:00:00Z' },
-      ],
-    });
+  it('maps RetrieveUserQuotaSummary buckets to 5h + weekly family windows', async () => {
+    localMock.fetchLocalQuotaSummary.mockResolvedValue([
+      { group: 'Gemini Models', bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.4, resetTime: '2026-08-28T15:00:00Z' },
+      { group: 'Gemini Models', bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.9, resetTime: '2026-09-03T15:00:00Z' },
+      { group: 'Claude and GPT models', bucketId: '3p-5h', window: '5h', remainingFraction: 0.75, resetTime: '2026-08-28T16:00:00Z' },
+      { group: 'Claude and GPT models', bucketId: '3p-weekly', window: 'weekly', remainingFraction: 1, resetTime: '2026-09-04T16:00:00Z' },
+    ]);
+    localMock.fetchLocalUserStatus.mockResolvedValue({ email: 'ruby291464@gmail.com', models: [] });
     const result = await antigravityProvider.fetchQuota(makeConfig());
     expect(result.status).toBe('ok');
     expect(result.account).toBe('ruby291464@gmail.com');
     expect(fetchSpy).not.toHaveBeenCalled();
 
-    const gemini = result.windows.find((w) => w.name === 'Gemini (5h)')!;
-    // worst model in the family represents the shared pool
-    expect(gemini.used).toBeCloseTo(60);
-    const claudeGpt = result.windows.find((w) => w.name === 'Claude+GPT (5h)')!;
-    expect(claudeGpt.used).toBeCloseTo(25);
+    expect(result.windows.map((w) => w.name).sort()).toEqual([
+      'Claude+GPT (5h)', 'Claude+GPT (weekly)', 'Gemini (5h)', 'Gemini (weekly)',
+    ]);
+    expect(result.windows.find((w) => w.name === 'Gemini (5h)')!.used).toBeCloseTo(60);
+    expect(result.windows.find((w) => w.name === 'Gemini (5h)')!.kind).toBe('session');
+    expect(result.windows.find((w) => w.name === 'Gemini (weekly)')!.used).toBeCloseTo(10);
+    expect(result.windows.find((w) => w.name === 'Gemini (weekly)')!.kind).toBe('week');
+    expect(result.windows.find((w) => w.name === 'Claude+GPT (5h)')!.used).toBeCloseTo(25);
+    // the legacy promptCredits window is gone — its units are garbage
+    expect(result.windows.find((w) => w.unit === 'credits')).toBeUndefined();
+  });
 
-    const credits = result.windows.find((w) => w.name === 'credits (monthly)')!;
-    expect(credits.kind).toBe('month');
-    expect(credits.unit).toBe('credits');
-    expect(credits.used).toBe(120);
-    expect(credits.total).toBe(1000);
-    expect(credits.remainingPct).toBeCloseTo(88);
+  it('still returns quota when the cosmetic GetUserStatus call fails', async () => {
+    localMock.fetchLocalQuotaSummary.mockResolvedValue([
+      { group: 'Gemini Models', bucketId: 'gemini-5h', window: '5h', remainingFraction: 1 },
+    ]);
+    // fetchLocalUserStatus stays rejected from beforeEach
+    const result = await antigravityProvider.fetchQuota(makeConfig());
+    expect(result.status).toBe('ok');
+    expect(result.account).toBe('antigravity-main');
+    expect(result.windows).toHaveLength(1);
   });
 
   it('falls back to the Google API when local fails', async () => {
@@ -208,7 +220,7 @@ describe('antigravityProvider (LOCAL mode)', () => {
   });
 
   it('surfaces an error envelope when local returns no quota data', async () => {
-    localMock.fetchLocalUserStatus.mockResolvedValue({ models: [] });
+    localMock.fetchLocalQuotaSummary.mockResolvedValue([]);
     fetchSpy.mockResolvedValue(okResponse({ 'gemini-3-flash': model('Gemini 3 Flash', 1) }));
     const result = await antigravityProvider.fetchQuota(makeConfig({ token: 'tok-1' }));
     // empty local payload throws inside fetchLocal → fallback used

@@ -1,7 +1,7 @@
 import type { ProviderAdapter } from './types.js';
 import type { ProviderConfig, ProviderQuota, QuotaWindow } from '../types.js';
 import { fetchJson, httpStatusToQuotaStatus, percentWindow, quotaError, quotaOk } from './base.js';
-import { fetchLocalUserStatus, type LocalUserStatus } from './antigravity-local.js';
+import { fetchLocalUserStatus, fetchLocalQuotaSummary, type QuotaBucket } from './antigravity-local.js';
 
 /**
  * Antigravity quota — two paths, tried in order:
@@ -16,10 +16,11 @@ import { fetchLocalUserStatus, type LocalUserStatus } from './antigravity-local.
  *    auth/refresh.ts but needs ANTIGRAVITY_OAUTH_CLIENT_SECRET, which we don't
  *    ship — so in practice this path is only as fresh as the last CLI login.
  *
- * Quota model: two independent ~5h rolling pools — Gemini family + Claude/GPT
- * family (models in a family share one pool; grouping by label is our
- * empirical heuristic, no pool field exists in either API). LOCAL mode adds a
- * third window: monthly prompt credits.
+ * Quota model: two independent families — Gemini + Claude/GPT — each with a
+ * 5h and a weekly pool (LOCAL mode reads RetrieveUserQuotaSummary, the same
+ * RPC the IDE's own quota UI renders; the Google fallback only exposes the
+ * 5h pool). The legacy monthly promptCredits field is deliberately NOT
+ * surfaced — its units are inconsistent and produce nonsense readings.
  */
 
 const API_URL = 'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels';
@@ -79,38 +80,41 @@ function toWindow(name: string, pool: FamilyPool): QuotaWindow {
 
 /** LOCAL path → ProviderQuota. Throws (caller falls back) when unavailable. */
 async function fetchLocal(config: ProviderConfig): Promise<ProviderQuota> {
-  const status: LocalUserStatus = await fetchLocalUserStatus();
+  // RetrieveUserQuotaSummary is what the IDE's own settings page renders
+  // ("Weekly Limit Remaining" etc.) — per-family 5h + weekly buckets.
+  // Do NOT use GetUserStatus's promptCredits: those are legacy Codeium
+  // fields whose two halves come in different units (500 vs 50000), so
+  // monthly-minus-available produces garbage like "99% used" for an
+  // untouched plan.
+  const buckets = await fetchLocalQuotaSummary();
 
-  const { gemini, claudeGpt } = worstPool(
-    status.models.map((m) => ({
-      label: m.label ?? m.modelId,
-      remainingFraction: m.remainingFraction,
-      resetTime: m.resetTime,
-    })),
-  );
+  const familyOfBucket = (b: QuotaBucket): 'Gemini' | 'Claude+GPT' =>
+    /gemini/i.test(b.group) || /gemini/i.test(b.bucketId) ? 'Gemini' : 'Claude+GPT';
 
   const windows: QuotaWindow[] = [];
-  if (gemini) windows.push(toWindow('Gemini (5h)', gemini));
-  if (claudeGpt) windows.push(toWindow('Claude+GPT (5h)', claudeGpt));
-  if (status.promptCredits) {
-    const { used, limit, remaining } = status.promptCredits;
-    windows.push({
-      name: 'credits (monthly)',
-      kind: 'month',
-      used,
-      total: limit,
-      unit: 'credits',
-      remaining,
-      remainingPct: limit > 0 ? (remaining / limit) * 100 : 0,
-      resetAt: null,
-      unlimited: false,
-    });
+  for (const b of buckets) {
+    const family = familyOfBucket(b);
+    const usedPct = Math.round((1 - Math.max(0, Math.min(1, b.remainingFraction))) * 10000) / 100;
+    if (b.window === '5h') {
+      windows.push(percentWindow(`${family} (5h)`, 'session', usedPct, b.resetTime ?? null));
+    } else if (b.window === 'weekly') {
+      windows.push(percentWindow(`${family} (weekly)`, 'week', usedPct, b.resetTime ?? null));
+    }
   }
 
   if (windows.length === 0) {
-    throw new Error('local server returned no quota data');
+    throw new Error('local server returned no quota buckets');
   }
-  return quotaOk('antigravity', status.email ?? config.id, 'antigravity', windows);
+
+  // Email is cosmetic — get it from GetUserStatus, but never let a failure
+  // there cost us the quota data.
+  let email = config.id;
+  try {
+    email = (await fetchLocalUserStatus()).email ?? config.id;
+  } catch {
+    /* cosmetic only */
+  }
+  return quotaOk('antigravity', email, 'antigravity', windows);
 }
 
 /** GOOGLE API path (fallback) — OAuth token from the antigravity-usage store. */

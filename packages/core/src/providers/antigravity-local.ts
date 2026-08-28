@@ -28,6 +28,7 @@ export class LocalUnavailableError extends Error {}
 const CONNECT_BASE = '/exa.language_server_pb.LanguageServerService';
 const PROBE_PATH = `${CONNECT_BASE}/GetUnleashData`;
 const STATUS_PATH = `${CONNECT_BASE}/GetUserStatus`;
+const QUOTA_SUMMARY_PATH = `${CONNECT_BASE}/RetrieveUserQuotaSummary`;
 // 401 = a real Connect endpoint rejecting a bad/missing CSRF token; a random
 // port serving something else answers 404 or doesn't speak Connect at all.
 const CONNECT_STATUSES = new Set([200, 401]);
@@ -307,6 +308,78 @@ export async function fetchLocalUserStatus(): Promise<LocalUserStatus> {
       throw new LocalUnavailableError(`GetUserStatus failed (HTTP ${status})`);
     }
     return parseUserStatus(data);
+  } catch (err) {
+    invalidateLocalEndpoint();
+    throw err;
+  }
+}
+
+// ── QuotaSummary (the IDE's own settings-page data source) ───────────────
+
+export interface QuotaBucket {
+  group: string; // displayName of the parent group, e.g. "Gemini Models"
+  bucketId: string; // e.g. "gemini-5h", "3p-weekly"
+  window: string; // "5h" | "weekly"
+  remainingFraction: number; // 0.0–1.0
+  resetTime?: string;
+}
+
+/**
+ * Parse RetrieveUserQuotaSummary → flat bucket list. This is the RPC the
+ * IDE's own quota UI renders ("Weekly Limit Remaining" etc.) — unlike the
+ * legacy promptCredits fields in GetUserStatus, these numbers are live.
+ */
+export function parseQuotaSummary(response: unknown): QuotaBucket[] {
+  if (typeof response !== 'object' || response === null) return [];
+  const data = response as Record<string, unknown>;
+  const inner = (data.response ?? data) as Record<string, unknown>;
+  const groups = inner.groups;
+  if (!Array.isArray(groups)) return [];
+
+  const out: QuotaBucket[] = [];
+  for (const g of groups) {
+    if (typeof g !== 'object' || g === null) continue;
+    const group = g as { displayName?: unknown; buckets?: unknown };
+    if (!Array.isArray(group.buckets)) continue;
+    for (const b of group.buckets) {
+      if (typeof b !== 'object' || b === null) continue;
+      const bucket = b as {
+        bucketId?: unknown;
+        window?: unknown;
+        remainingFraction?: unknown;
+        resetTime?: unknown;
+      };
+      if (typeof bucket.remainingFraction !== 'number') continue;
+      out.push({
+        group: typeof group.displayName === 'string' ? group.displayName : 'unknown',
+        bucketId: typeof bucket.bucketId === 'string' ? bucket.bucketId : 'unknown',
+        window: typeof bucket.window === 'string' ? bucket.window : 'unknown',
+        remainingFraction: bucket.remainingFraction,
+        resetTime: typeof bucket.resetTime === 'string' ? bucket.resetTime : undefined,
+      });
+    }
+  }
+  return out;
+}
+
+/** Full local fetch of the quota summary. Throws LocalUnavailableError. */
+export async function fetchLocalQuotaSummary(): Promise<QuotaBucket[]> {
+  const endpoint = await resolveLocalEndpoint();
+  try {
+    const { status, data } = await connectRequest<unknown>({
+      baseUrl: endpoint.baseUrl,
+      path: QUOTA_SUMMARY_PATH,
+      csrfToken: endpoint.csrfToken,
+      body: {},
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    });
+    if (status === 401 || status === 403) {
+      throw new LocalUnavailableError(`CSRF token rejected (HTTP ${status})`);
+    }
+    if (status < 200 || status >= 300 || data === null) {
+      throw new LocalUnavailableError(`RetrieveUserQuotaSummary failed (HTTP ${status})`);
+    }
+    return parseQuotaSummary(data);
   } catch (err) {
     invalidateLocalEndpoint();
     throw err;

@@ -171,7 +171,7 @@ notes, and how to pair the iOS app over the public internet.
 | GLM-CN | 5h session, 7d weekly | Coding Plan API key |
 | OpenCode Go | 5h session, 7d weekly, 1mo monthly | opencode.ai `auth` cookie + workspace id |
 | Kimi | 5h session, 7d weekly | Kimi Code API key |
-| Antigravity | 5h Gemini pool, 5h Claude+GPT pool, monthly credits | LOCAL first: reads the running IDE's language server (Connect RPC, no credentials); falls back to the `antigravity-usage` CLI token store |
+| Antigravity | 5h + weekly Gemini pool, 5h + weekly Claude+GPT pool | LOCAL first: reads the running IDE's language server (Connect RPC, no credentials) via `RetrieveUserQuotaSummary` — the same data the IDE's own quota UI shows; falls back to the `antigravity-usage` CLI token store (5h only) |
 
 *Roadmap:* a **GitHub Copilot** adapter (monthly request allowances) is implemented but its credential setup isn't wired into the app yet.
 

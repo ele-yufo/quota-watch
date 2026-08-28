@@ -148,7 +148,7 @@ claude mcp add quota-watch --transport http https://<公网IP>:38737/mcp \
 | GLM-CN | 5h session、7d weekly | Coding Plan API key |
 | OpenCode Go | 5h session、7d weekly、1mo monthly | opencode.ai `auth` cookie + workspace id |
 | Kimi | 5h session、7d weekly | Kimi Code API key |
-| Antigravity | 5h Gemini 池、5h Claude+GPT 池、月度 credits | 优先读本地运行中 IDE 的 language server(Connect RPC,免凭证);IDE 未开时回退 `antigravity-usage` CLI 的 token 存储 |
+| Antigravity | 5h + weekly Gemini 池、5h + weekly Claude+GPT 池 | 优先读本地运行中 IDE 的 language server(Connect RPC,免凭证),走 `RetrieveUserQuotaSummary`——与 IDE 自己的配额界面同源;IDE 未开时回退 `antigravity-usage` CLI 的 token 存储(只有 5h) |
 
 *路线图:* **GitHub Copilot** 适配器(月度请求额度)已实现,但凭据接入尚未接进 app。
 

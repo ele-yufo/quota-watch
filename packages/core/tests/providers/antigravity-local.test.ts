@@ -104,3 +104,43 @@ describe('parseUserStatus', () => {
     expect(parseUserStatus({ userStatus: { planStatus: { availablePromptCredits: 'x' } } }).promptCredits).toBeUndefined();
   });
 });
+
+describe('parseQuotaSummary', () => {
+  it('flattens groups/buckets, tolerating the response wrapper', async () => {
+    const { parseQuotaSummary } = await import('../../src/providers/antigravity-local.js');
+    const raw = {
+      response: {
+        groups: [
+          {
+            displayName: 'Gemini Models',
+            buckets: [
+              { bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.945, resetTime: '2026-09-03T19:10:07Z' },
+              { bucketId: 'gemini-5h', window: '5h', remainingFraction: 0.955, resetTime: '2026-08-28T07:58:46Z' },
+            ],
+          },
+          {
+            displayName: 'Claude and GPT models',
+            buckets: [
+              { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 1, resetTime: '2026-09-04T05:33:28Z' },
+              { bucketId: '3p-5h', window: '5h', remainingFraction: 1, resetTime: '2026-08-28T10:33:28Z' },
+            ],
+          },
+        ],
+      },
+    };
+    const buckets = parseQuotaSummary(raw);
+    expect(buckets).toHaveLength(4);
+    expect(buckets[0]).toMatchObject({ group: 'Gemini Models', bucketId: 'gemini-weekly', window: 'weekly', remainingFraction: 0.945 });
+    expect(buckets[3]).toMatchObject({ group: 'Claude and GPT models', bucketId: '3p-5h', window: '5h' });
+  });
+
+  it('returns [] on garbage input and drops buckets without remainingFraction', async () => {
+    const { parseQuotaSummary } = await import('../../src/providers/antigravity-local.js');
+    expect(parseQuotaSummary(null)).toEqual([]);
+    expect(parseQuotaSummary({})).toEqual([]);
+    expect(parseQuotaSummary({ groups: 'nope' })).toEqual([]);
+    const partial = parseQuotaSummary({ groups: [{ displayName: 'G', buckets: [{ bucketId: 'a' }, { bucketId: 'b', window: '5h', remainingFraction: 0.5 }] }] });
+    expect(partial).toHaveLength(1);
+    expect(partial[0]!.bucketId).toBe('b');
+  });
+});
