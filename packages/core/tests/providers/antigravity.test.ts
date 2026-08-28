@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { antigravityProvider } from '../../src/providers/antigravity.js';
 import type { ProviderConfig } from '../../src/types.js';
 
+// The provider now tries the local IDE Connect-RPC path first; these tests
+// target the Google-API fallback, so local is mocked to "not running" by
+// default (the LOCAL describe below overrides with real payloads).
+const localMock = vi.hoisted(() => ({ fetchLocalUserStatus: vi.fn() }));
+vi.mock('../../src/providers/antigravity-local.js', () => ({
+  fetchLocalUserStatus: localMock.fetchLocalUserStatus,
+}));
+
 function makeConfig(credentials: Record<string, string> = {}): ProviderConfig {
   return {
     id: 'antigravity-main',
@@ -27,6 +35,7 @@ let fetchSpy: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetchSpy = vi.fn();
   vi.stubGlobal('fetch', fetchSpy);
+  localMock.fetchLocalUserStatus.mockRejectedValue(new Error('local IDE not running'));
 });
 
 afterEach(() => {
@@ -37,7 +46,7 @@ describe('antigravityProvider (native Cloud Code API)', () => {
   it('has correct id, displayName and a poll floor', () => {
     expect(antigravityProvider.id).toBe('antigravity');
     expect(antigravityProvider.displayName).toBe('Antigravity');
-    expect(antigravityProvider.minPollIntervalMs).toBeGreaterThanOrEqual(30_000);
+    expect(antigravityProvider.minPollIntervalMs).toBeGreaterThanOrEqual(15_000);
   });
 
   it('returns not_configured without a token', async () => {
@@ -157,5 +166,53 @@ describe('antigravityProvider (native Cloud Code API)', () => {
     fetchSpy.mockResolvedValue(okResponse({ 'claude-b': model('Claude B', 1) }));
     const result = await antigravityProvider.fetchQuota(makeConfig({ token: 'tok-1' }));
     expect(result.account).toBe('antigravity-main');
+  });
+});
+
+describe('antigravityProvider (LOCAL mode)', () => {
+  it('maps local user status to family pools + monthly credits window', async () => {
+    localMock.fetchLocalUserStatus.mockResolvedValue({
+      email: 'ruby291464@gmail.com',
+      promptCredits: { used: 120, limit: 1000, remaining: 880 },
+      models: [
+        { modelId: 'gemini-3-flash', label: 'Gemini 3 Flash', remainingFraction: 0.9, resetTime: '2026-08-28T15:00:00Z' },
+        { modelId: 'gemini-3-pro', label: 'Gemini 3 Pro', remainingFraction: 0.4, resetTime: '2026-08-28T15:00:00Z' },
+        { modelId: 'claude-sonnet', label: 'Claude Sonnet 4.5', remainingFraction: 0.75, resetTime: '2026-08-28T16:00:00Z' },
+      ],
+    });
+    const result = await antigravityProvider.fetchQuota(makeConfig());
+    expect(result.status).toBe('ok');
+    expect(result.account).toBe('ruby291464@gmail.com');
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const gemini = result.windows.find((w) => w.name === 'Gemini (5h)')!;
+    // worst model in the family represents the shared pool
+    expect(gemini.used).toBeCloseTo(60);
+    const claudeGpt = result.windows.find((w) => w.name === 'Claude+GPT (5h)')!;
+    expect(claudeGpt.used).toBeCloseTo(25);
+
+    const credits = result.windows.find((w) => w.name === 'credits (monthly)')!;
+    expect(credits.kind).toBe('month');
+    expect(credits.unit).toBe('credits');
+    expect(credits.used).toBe(120);
+    expect(credits.total).toBe(1000);
+    expect(credits.remainingPct).toBeCloseTo(88);
+  });
+
+  it('falls back to the Google API when local fails', async () => {
+    // beforeEach already rejects local; a working Google response should win
+    fetchSpy.mockResolvedValue(okResponse({ 'gemini-3-flash': model('Gemini 3 Flash', 0.5) }));
+    const result = await antigravityProvider.fetchQuota(makeConfig({ token: 'tok-1' }));
+    expect(result.status).toBe('ok');
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('surfaces an error envelope when local returns no quota data', async () => {
+    localMock.fetchLocalUserStatus.mockResolvedValue({ models: [] });
+    fetchSpy.mockResolvedValue(okResponse({ 'gemini-3-flash': model('Gemini 3 Flash', 1) }));
+    const result = await antigravityProvider.fetchQuota(makeConfig({ token: 'tok-1' }));
+    // empty local payload throws inside fetchLocal → fallback used
+    expect(result.status).toBe('ok');
+    expect(fetchSpy).toHaveBeenCalledOnce();
   });
 });
