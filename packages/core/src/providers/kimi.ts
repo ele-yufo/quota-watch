@@ -26,11 +26,15 @@ interface KimiUsageResponse {
 
 // Kimi reports raw unit counts (limit/used/remaining), not percentages —
 // keep the raw totals so the UI can show absolute usage.
-function toWindow(name: string, kind: WindowKind, d: KimiUsageItem): QuotaWindow {
-  const limit = Number(d.limit ?? 0);
-  const used = d.used != null ? Number(d.used) : limit - Number(d.remaining ?? 0);
+// Unparseable/missing numbers must NOT degrade to limit=0 → remainingPct=0
+// (a fake "exhausted" that fires alerts) or NaN (crashes the NOT NULL insert).
+// A window we can't measure honestly is a window we don't report.
+function toWindow(name: string, kind: WindowKind, d: KimiUsageItem): QuotaWindow | null {
+  const limit = Number(d.limit);
+  const used = d.used != null ? Number(d.used) : limit - Number(d.remaining);
+  if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(used)) return null;
   const remaining = Math.max(0, limit - used);
-  const remainingPct = limit > 0 ? (remaining / limit) * 100 : 0;
+  const remainingPct = (remaining / limit) * 100;
   return {
     name,
     kind,
@@ -68,9 +72,15 @@ export const kimiProvider: ProviderAdapter = {
     const windows: QuotaWindow[] = [];
     // 5h session: the limit whose window.duration === 300 minutes
     const session = res.data.limits?.find((l) => l.window?.duration === 300);
-    if (session?.detail) windows.push(toWindow('session (5h)', 'session', session.detail));
+    if (session?.detail) {
+      const w = toWindow('session (5h)', 'session', session.detail);
+      if (w) windows.push(w);
+    }
     // weekly: top-level usage
-    if (res.data.usage) windows.push(toWindow('weekly (7d)', 'week', res.data.usage));
+    if (res.data.usage) {
+      const w = toWindow('weekly (7d)', 'week', res.data.usage);
+      if (w) windows.push(w);
+    }
 
     return quotaOk('kimi', config.id, 'kimi-code', windows);
   },

@@ -36,15 +36,18 @@ const toIso = (epochSec: number | undefined): string | null =>
 // primary_window with limit_window_seconds=604800 and secondary_window=null),
 // so prefer the actual span; when the span is absent, fall back to the slot
 // (primary→session, secondary→week) as the pre-change shape did.
+// Span thresholds sit at the midpoints of the spans OpenAI actually ships
+// (5h / 24h / 7d) so a future 24h window lands on 'day', not 'session'.
 function windowMeta(
   w: CodexWindow,
   slot: 'primary' | 'secondary',
-): { name: string; kind: 'session' | 'week' } {
+): { name: string; kind: 'session' | 'day' | 'week' } {
   const secs = w.limit_window_seconds;
   if (typeof secs === 'number') {
-    return secs <= 24 * 3600
-      ? { name: 'session (5h)', kind: 'session' }
-      : { name: 'weekly (7d)', kind: 'week' };
+    const hours = Math.round(secs / 3600);
+    if (secs <= 12 * 3600) return { name: `session (${hours}h)`, kind: 'session' };
+    if (secs <= 3 * 86_400) return { name: `daily (${hours}h)`, kind: 'day' };
+    return { name: 'weekly (7d)', kind: 'week' };
   }
   return slot === 'primary'
     ? { name: 'session (5h)', kind: 'session' }

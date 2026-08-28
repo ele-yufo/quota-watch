@@ -91,7 +91,8 @@ export function resolveOpenCodeGoCredentials(
 
 interface ScrapedWindow {
   usagePercent: number;
-  resetInSec: number;
+  /** null = the page gave no reset info — must NOT be turned into resetAt=now(). */
+  resetInSec: number | null;
 }
 
 type WindowKey = 'rolling' | 'weekly' | 'monthly';
@@ -148,8 +149,10 @@ function parseDataSlots(html: string): Partial<Record<WindowKey, ScrapedWindow>>
           : null;
     if (!key) continue;
 
-    let resetInSec = 0;
-    if (!/data-slot="reset-now"/.test(block)) {
+    let resetInSec: number | null = null;
+    if (/data-slot="reset-now"/.test(block)) {
+      resetInSec = 0; // explicit "resets now" marker
+    } else {
       const resetMatch = /data-slot="reset-time"[^>]*>([\s\S]*?)<\/span>/.exec(block);
       if (resetMatch) {
         const text = resetMatch[1]!
@@ -158,6 +161,7 @@ function parseDataSlots(html: string): Partial<Record<WindowKey, ScrapedWindow>>
           .trim();
         resetInSec = parseHumanReadableTime(text);
       }
+      // No reset-time element at all → stays null, no fake resetAt.
     }
     result[key] = { usagePercent: Number(valueMatch[1]), resetInSec };
   }
@@ -192,7 +196,11 @@ function toWindows(scraped: Partial<Record<WindowKey, ScrapedWindow>>): QuotaWin
   return WINDOW_META.flatMap(({ key, name, kind }) => {
     const w = scraped[key];
     if (!w) return [];
-    const resetAt = new Date(now + Math.max(0, w.resetInSec) * 1000).toISOString();
+    // resetInSec=0 is a real "resets now"; null means the page carried no
+    // reset info — writing resetAt=now() there would make the DB treat every
+    // poll as a change (~26k rows/day of pure churn) and lie to the UI.
+    const resetAt =
+      w.resetInSec == null ? null : new Date(now + Math.max(0, w.resetInSec) * 1000).toISOString();
     return [percentWindow(name, kind, Math.max(0, w.usagePercent), resetAt)];
   });
 }

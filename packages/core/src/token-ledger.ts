@@ -100,9 +100,10 @@ export function parseCodexLine(
   const payload = rec.payload as Record<string, unknown> | undefined;
   if (payload?.type !== 'token_count') return null;
   const info = payload.info as Record<string, unknown> | undefined;
-  const last = (info?.last_token_usage ?? info?.total_token_usage) as
-    | Record<string, unknown>
-    | undefined;
+  // Only the per-turn delta is usable. Falling back to total_token_usage (the
+  // CUMULATIVE counter) would record the running total as a fresh delta on
+  // every event — usage grows quadratically instead of linearly.
+  const last = info?.last_token_usage as Record<string, unknown> | undefined;
   if (!last) return null;
 
   const num = (v: unknown): number => (typeof v === 'number' && v > 0 ? v : 0);

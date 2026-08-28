@@ -52,9 +52,15 @@ export const glmCnProvider: ProviderAdapter = {
     }
 
     // Two TOKENS_LIMIT entries: 5h session (earlier reset) + weekly (later reset).
+    // An entry WITHOUT nextResetTime must sort LAST (?? 0 would promote it to
+    // "session", mislabeling a possibly-weekly window as the 5h one).
     const tokenLimits = (res.data.data?.limits ?? [])
       .filter((l) => l.type === 'TOKENS_LIMIT')
-      .sort((a, b) => (a.nextResetTime ?? 0) - (b.nextResetTime ?? 0));
+      .sort(
+        (a, b) =>
+          (a.nextResetTime ?? Number.POSITIVE_INFINITY) -
+          (b.nextResetTime ?? Number.POSITIVE_INFINITY),
+      );
 
     const windows: QuotaWindow[] = [];
     if (tokenLimits[0]) windows.push(toWindow('session (5h)', 'session', tokenLimits[0]));
