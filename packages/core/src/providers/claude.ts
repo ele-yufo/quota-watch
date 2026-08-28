@@ -78,9 +78,10 @@ export const claudeProvider: ProviderAdapter = {
   id: 'claude',
   displayName: 'Claude Code',
   // The oauth/usage endpoint is aggressively rate-limited (Retry-After up to
-  // ~48min observed) and Claude Code itself also calls it — polling faster
-  // than once a minute just feeds the limiter.
-  minPollIntervalMs: 60_000,
+  // ~48min observed) and Claude Code itself also calls it. Paseo queries the
+  // same endpoint on-demand with a 5min cache — match that proven cadence as
+  // our floor; fine-grained burn data comes from local session logs anyway.
+  minPollIntervalMs: 300_000,
 
   async fetchQuota(config: ProviderConfig): Promise<ProviderQuota> {
     const token = config.credentials.token;
