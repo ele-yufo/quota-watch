@@ -133,6 +133,7 @@ async function main(): Promise<void> {
     idleIntervalMs: appConfig.poll.idleMs,
     alertIntervalMs: appConfig.poll.fastMs,
     onQuotaFetched: async (providerId, quota) => {
+      db.recordPoll(providerId, 'ok');
       for (const window of quota.windows) {
         log('INFO', `[${providerId}] ${window.name}: ${window.used}/${window.total} ${window.unit} (${window.remainingPct.toFixed(1)}% remaining)`);
       }
@@ -149,10 +150,11 @@ async function main(): Promise<void> {
     onPollError: (() => {
       const lastLogged = new Map<string, number>();
       return (providerId: string, err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        db.recordPoll(providerId, 'error', msg);
         const now = Date.now();
         if (now - (lastLogged.get(providerId) ?? 0) < 300_000) return;
         lastLogged.set(providerId, now);
-        const msg = err instanceof Error ? err.message : String(err);
         log('ERROR', `[${providerId}] poll failed: ${msg}`);
       };
     })(),

@@ -106,6 +106,29 @@ open http://localhost:3000
 | `quota-watch config add/list/test/remove <provider>` | Manage providers |
 | `quota-watch daemon start [--lan]` | Background polling + API (`--lan` binds `0.0.0.0` with token auth, for iOS) |
 | `quota-watch connect [--qr] [--host <addr>]` | Pair the iOS app (QR / manual; `--host` for a public address) |
+| `quota-watch mcp` | MCP server on stdio — let an agent harness read quota/token state |
+
+## Token ledger & MCP (for agent dispatch)
+
+Beyond provider-reported percentages, the daemon keeps an **absolute token
+ledger**: it incrementally scans the session logs your CLIs already write
+(`~/.claude/projects`, `~/.codex/sessions`) into SQLite, and exposes
+consumption + burn-rate + an extrapolated per-window token budget at
+`GET /tokens` (and in each provider's drawer in the web UI).
+
+For agent harnesses, `quota-watch mcp` serves three MCP tools over stdio:
+
+| Tool | What it answers |
+|---|---|
+| `get_quota_overview` | All channels: windows, remaining %, resets, burn predictions, last-poll freshness |
+| `get_token_usage` | Absolute tokens per channel (5h/24h/7d spans) + estimated budget/remaining |
+| `recommend_channel` | Headroom-ranked channel list for dispatching a task (staleness- and error-aware) |
+
+Register it with your harness, e.g. Claude Code:
+
+```bash
+claude mcp add quota-watch -- node "$PWD/packages/cli/dist/index.js" mcp
+```
 
 ## Run at login & public access (macOS)
 
@@ -131,7 +154,7 @@ notes, and how to pair the iOS app over the public internet.
 | GLM-CN | 5h session, 7d weekly | Coding Plan API key |
 | OpenCode Go | 5h session, 7d weekly, 1mo monthly | opencode.ai `auth` cookie + workspace id |
 | Kimi | 5h session, 7d weekly | Kimi Code API key |
-| Antigravity | 5h Gemini pool, 5h Claude+GPT pool | reuses the `antigravity-usage` CLI token store |
+| Antigravity | 5h Gemini pool, 5h Claude+GPT pool, monthly credits | LOCAL first: reads the running IDE's language server (Connect RPC, no credentials); falls back to the `antigravity-usage` CLI token store |
 
 *Roadmap:* a **GitHub Copilot** adapter (monthly request allowances) is implemented but its credential setup isn't wired into the app yet.
 

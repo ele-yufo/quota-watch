@@ -122,6 +122,19 @@ export class QuotaDB {
       this.migrateToV3();
       this.db.pragma("user_version = 3");
     }
+
+    if (version < 4) {
+      // last-poll bookkeeping. quota_snapshots is change-only, so its
+      // timestamps say when a VALUE moved, not when the provider was last
+      // polled — clients need the latter for freshness/staleness calls.
+      this.db.exec(`CREATE TABLE IF NOT EXISTS provider_poll_state (
+        provider_id TEXT PRIMARY KEY,
+        last_poll_at TEXT NOT NULL,
+        last_status TEXT NOT NULL,
+        last_error TEXT
+      )`);
+      this.db.pragma("user_version = 4");
+    }
   }
 
   /** v3: token-usage ledger fed by CLI session logs (token monitoring). */
@@ -371,6 +384,28 @@ export class QuotaDB {
          ON CONFLICT(file_path) DO UPDATE SET offset = excluded.offset, updated_at = excluded.updated_at`,
       )
       .run(filePath, offset, new Date().toISOString());
+  }
+
+  /** Record a poll attempt (success or failure) — the freshness signal. */
+  recordPoll(providerId: string, status: 'ok' | 'error', error?: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO provider_poll_state (provider_id, last_poll_at, last_status, last_error)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(provider_id) DO UPDATE SET
+           last_poll_at = excluded.last_poll_at,
+           last_status = excluded.last_status,
+           last_error = excluded.last_error`,
+      )
+      .run(providerId, new Date().toISOString(), status, error ?? null);
+  }
+
+  getPollState(providerId: string): { lastPollAt: string; lastStatus: string; lastError: string | null } | null {
+    const row = this.db
+      .prepare(`SELECT last_poll_at AS lastPollAt, last_status AS lastStatus, last_error AS lastError
+                FROM provider_poll_state WHERE provider_id = ?`)
+      .get(providerId) as { lastPollAt: string; lastStatus: string; lastError: string | null } | undefined;
+    return row ?? null;
   }
 
   /** Aggregate token usage for a provider since an ISO timestamp. */

@@ -102,6 +102,28 @@ open http://localhost:3000
 | `quota-watch config add/list/test/remove <provider>` | 管理渠道 |
 | `quota-watch daemon start [--lan]` | 后台采集 + API(`--lan` 绑 `0.0.0.0` + token 认证,供 iOS) |
 | `quota-watch connect [--qr] [--host <addr>]` | 配对 iOS app(二维码/手动;`--host` 指定公网地址) |
+| `quota-watch mcp` | 以 stdio 运行 MCP Server —— 让 agent 宿主读取额度/token 状态 |
+
+## Token 台账与 MCP(面向 agent 派单)
+
+在厂商报告的百分比之外,daemon 还维护一份**绝对 token 台账**:增量扫描 CLI 自己写的
+会话日志(`~/.claude/projects`、`~/.codex/sessions`)入 SQLite,经 `GET /tokens`
+(web 端每个渠道的详情抽屉里也有)给出消耗量、燃烧速率、以及按已用百分比外推的
+窗口绝对预算。
+
+`quota-watch mcp` 以 stdio 提供三个 MCP 工具:
+
+| 工具 | 回答什么 |
+|---|---|
+| `get_quota_overview` | 全部渠道:窗口、剩余 %、重置时间、燃烧预测、上次轮询新鲜度 |
+| `get_token_usage` | 各渠道绝对 token 数(5h/24h/7d 区段)+ 估计预算/余量 |
+| `recommend_channel` | 按可派单余量排序的渠道清单(感知数据陈旧与报错) |
+
+接入宿主示例(Claude Code):
+
+```bash
+claude mcp add quota-watch -- node "$PWD/packages/cli/dist/index.js" mcp
+```
 
 ## 支持的渠道
 
@@ -112,7 +134,7 @@ open http://localhost:3000
 | GLM-CN | 5h session、7d weekly | Coding Plan API key |
 | OpenCode Go | 5h session、7d weekly、1mo monthly | opencode.ai `auth` cookie + workspace id |
 | Kimi | 5h session、7d weekly | Kimi Code API key |
-| Antigravity | 5h Gemini 池、5h Claude+GPT 池 | 复用 `antigravity-usage` CLI 的 token 存储 |
+| Antigravity | 5h Gemini 池、5h Claude+GPT 池、月度 credits | 优先读本地运行中 IDE 的 language server(Connect RPC,免凭证);IDE 未开时回退 `antigravity-usage` CLI 的 token 存储 |
 
 *路线图:* **GitHub Copilot** 适配器(月度请求额度)已实现,但凭据接入尚未接进 app。
 
