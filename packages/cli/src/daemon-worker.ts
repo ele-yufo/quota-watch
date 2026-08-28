@@ -30,6 +30,7 @@ import {
   antigravityProvider,
   glmCnProvider,
   copilotProvider,
+  scanSessionLogs,
 } from '@quota-watch/core';
 import type { AlertNotifier, AlertMessage } from '@quota-watch/core';
 import type { Server } from 'node:http';
@@ -159,6 +160,22 @@ async function main(): Promise<void> {
 
   scheduler.start();
   log('INFO', 'Scheduler started');
+
+  // Token ledger: incremental scan of CLI session logs (claude/codex) into
+  // token_events. Cheap after the first run (byte-offset bookmarks), so run
+  // it on a fixed cadence independent of provider polls.
+  const scanTokens = (): void => {
+    try {
+      const r = scanSessionLogs(db);
+      if (r.eventsAdded > 0) {
+        log('INFO', `Token ledger: +${r.eventsAdded} events from ${r.filesSeen} files`);
+      }
+    } catch (err) {
+      log('WARN', `Token ledger scan failed: ${err instanceof Error ? err.message : err}`);
+    }
+  };
+  scanTokens();
+  setInterval(scanTokens, 5 * 60 * 1000).unref();
 
   // Embedded HTTPS API — web dashboard status/refresh, menu bar, iOS app.
   // TLS material (local CA + server cert) is generated on first boot; clients

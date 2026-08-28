@@ -25,9 +25,18 @@ export {
 export {
   startApiServer,
   buildQuotaResponse,
+  buildTokensResponse,
   type ApiServerOptions,
   type QuotaApiProvider,
+  type TokensApiProvider,
 } from './api-server.js';
+export {
+  scanSessionLogs,
+  estimateWindowTokens,
+  WINDOW_SECONDS,
+  type ScanResult,
+  type WindowTokenEstimate,
+} from './token-ledger.js';
 export {
   startPairingSession,
   activePairingSession,

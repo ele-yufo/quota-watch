@@ -7,6 +7,7 @@
  *
  *   GET  /health           liveness + per-provider poll intervals
  *   GET  /quota            latest snapshot per provider×window (kind-sorted)
+ *   GET  /tokens           absolute token usage from CLI logs + budget estimates
  *   POST /poll[?provider=] force an immediate poll (all or one provider)
  *
  * Auth: when an api.token is set, EVERY request must send
@@ -23,6 +24,7 @@ import type { QuotaDB } from "./db.js";
 import type { QuotaScheduler } from "./scheduler.js";
 import { sortWindowsByKind } from "./windows.js";
 import { startPairingSession, claimPairingCode } from "./pairing.js";
+import { estimateWindowTokens, WINDOW_SECONDS } from "./token-ledger.js";
 
 /** Read and JSON-parse a request body (capped), null on empty/oversize/invalid. */
 async function readJsonBody(req: IncomingMessage, maxBytes = 4096): Promise<unknown> {
@@ -117,6 +119,84 @@ export function buildQuotaResponse(db: QuotaDB): QuotaApiProvider[] {
   }));
 }
 
+export interface TokensApiProvider {
+  providerId: string;
+  displayName: string;
+  providerType: string;
+  /** raw token sums over rolling spans; null when the CLI writes no logs */
+  spans: Record<
+    string,
+    { seconds: number; totalTokens: number; inputTokens: number; outputTokens: number; cacheTokens: number; events: number }
+  >;
+  /** per percent-window absolute estimate (anchored to the provider's used%) */
+  windows: Array<{
+    windowName: string;
+    windowKind: string;
+    usedPct: number;
+    consumedTokens: number;
+    estimatedBudgetTokens: number | null;
+    estimatedRemainingTokens: number | null;
+    burnRatePerHour: number | null;
+  }>;
+}
+
+/**
+ * GET /tokens — absolute token consumption from CLI session logs plus
+ * per-window budget estimates. The daemon scans logs into token_events; this
+ * route only aggregates. Estimates are extrapolations (cache tokens don't
+ * count 1:1 against the real plan budget) — treat as orders of magnitude.
+ */
+export function buildTokensResponse(db: QuotaDB): TokensApiProvider[] {
+  const providers = db.listProviders();
+  const snapshots = db.getLatestSnapshots();
+  const byPid = new Map<string, typeof snapshots>();
+  for (const s of snapshots) {
+    const arr = byPid.get(s.providerId) ?? [];
+    arr.push(s);
+    byPid.set(s.providerId, arr);
+  }
+
+  const now = new Date();
+  return providers.map((p) => {
+    const spans: TokensApiProvider["spans"] = {};
+    for (const [kind, seconds] of Object.entries(WINDOW_SECONDS)) {
+      const agg = db.tokenUsageSince(
+        p.provider,
+        new Date(now.getTime() - seconds * 1000).toISOString(),
+      );
+      if (agg.events === 0) continue;
+      spans[kind] = {
+        seconds,
+        totalTokens: agg.totalTokens,
+        inputTokens: agg.inputTokens,
+        outputTokens: agg.outputTokens,
+        cacheTokens: agg.cacheReadTokens + agg.cacheWriteTokens,
+        events: agg.events,
+      };
+    }
+
+    const windows = (byPid.get(p.id) ?? [])
+      .filter((w) => w.unit === "percent")
+      .flatMap((w) => {
+        const est = estimateWindowTokens(db, p.provider, {
+          kind: w.windowKind,
+          name: w.windowName,
+          usedPct: w.total > 0 ? (w.used / w.total) * 100 : 0,
+          remainingPct: w.remainingPct,
+        });
+        return est ? [est] : [];
+      });
+
+    return {
+      providerId: p.id,
+      displayName: p.displayName,
+      providerType: p.provider,
+      spans,
+      windows,
+    };
+  });
+}
+
 export function startApiServer(options: ApiServerOptions): Promise<Server> {
   const { db, scheduler, host, port, token } = options;
   const startedAt = new Date().toISOString();
@@ -195,6 +275,11 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
 
       if (req.method === "GET" && url.pathname === "/quota") {
         sendJson(res, 200, buildQuotaResponse(db));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/tokens") {
+        sendJson(res, 200, buildTokensResponse(db));
         return;
       }
 
