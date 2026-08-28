@@ -44,8 +44,8 @@ function Tile({ card, onSelect }: { card: CardData; onSelect: (c: CardData) => v
         <>
           <div className="flex items-end gap-2">
             <span
-              className={`${LEVEL_TEXT[level]} tnum font-semibold leading-[0.85]`}
-              style={{ fontSize: 88, letterSpacing: "-0.05em" }}
+              className={`${LEVEL_TEXT[level]} tnum font-semibold leading-[0.85] text-[64px] sm:text-[88px]`}
+              style={{ letterSpacing: "-0.05em" }}
             >
               {pct.toFixed(0)}
             </span>

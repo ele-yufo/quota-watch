@@ -28,11 +28,11 @@ function WindowCell({ w }: { w: LatestSnapshot }) {
   const reset = formatResetCountdown(w.resetAt);
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline justify-between mb-1.5">
-        <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-ink-3">
+      <div className="flex items-baseline justify-between mb-1.5 gap-2">
+        <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-ink-3 truncate min-w-0">
           {WINDOW_KIND_LABEL[w.windowKind]} · {w.windowName}
         </span>
-        <span className="font-mono text-[10px] text-ink-4">{reset ? `↻ ${reset}` : ""}</span>
+        <span className="font-mono text-[10px] text-ink-4 shrink-0">{reset ? `↻ ${reset}` : ""}</span>
       </div>
       <div className="flex items-baseline gap-3">
         <span className={`${LEVEL_TEXT[level]} tnum font-semibold text-[28px] leading-none w-[64px]`}>
@@ -51,7 +51,7 @@ function ProviderRow({ card, n, onSelect }: { card: CardData; n: number; onSelec
   return (
     <button
       onClick={() => onSelect(card)}
-      className="grid grid-cols-[36px_180px_1fr] gap-6 items-start text-left py-6 border-t border-line hover:bg-paper-2/60 transition-colors px-2 -mx-2"
+      className="grid grid-cols-1 gap-3 sm:grid-cols-[36px_180px_1fr] sm:gap-6 items-start text-left py-6 border-t border-line hover:bg-paper-2/60 transition-colors px-2 -mx-2"
     >
       <span className="font-mono text-[13px] text-ink-4 tnum pt-1">
         {String(n).padStart(2, "0")}
@@ -83,20 +83,20 @@ export function SwissDashboard({
   const ago = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : null;
 
   return (
-    <main className="max-w-[1080px] mx-auto px-8 pt-16 pb-10 md:pb-16">
+    <main className="max-w-[1080px] mx-auto px-4 sm:px-8 pt-16 pb-10 md:pb-16">
       {/* masthead */}
       <header className="mb-2">
         <h1 className="text-ink font-bold leading-[0.92] tracking-[-0.03em]" style={{ fontSize: "clamp(40px, 8vw, 76px)" }}>
           Quota<br />Watch
         </h1>
-        <div className="mt-6 flex items-center gap-6 font-mono text-[11px] tracking-[0.06em] text-ink-3 pb-4 border-b-[3px] border-ink">
+        <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-1.5 font-mono text-[11px] tracking-[0.06em] text-ink-3 pb-4 border-b-[3px] border-ink">
           <span className={daemon?.running ? "" : "text-vermillion"}>
             {daemon?.running ? "LIVE" : "OFFLINE"}
           </span>
           {ago !== null && daemon?.running && <span className="text-ink-4">UPDATED {ago}S AGO</span>}
           <span className="text-ink-4">{String(cards.length).padStart(2, "0")} CHANNELS</span>
           {atRisk.length > 0 && <span className="text-vermillion">{atRisk.length} AT RISK</span>}
-          <span className="ml-auto text-ink-4">FIG. 01 — CONSUMPTION</span>
+          <span className="ml-auto text-ink-4 hidden sm:inline">FIG. 01 — CONSUMPTION</span>
         </div>
       </header>
 

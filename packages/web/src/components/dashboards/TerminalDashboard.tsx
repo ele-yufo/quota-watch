@@ -17,8 +17,7 @@ const LEVEL_TEXT: Record<"ok" | "warn" | "low", string> = {
   low: "text-vermillion",
 };
 
-function Bar({ pct, level }: { pct: number; level: "ok" | "warn" | "low" }) {
-  const cells = 24;
+function Bar({ pct, level, cells }: { pct: number; level: "ok" | "warn" | "low"; cells: number }) {
   const filled = Math.round((pct / 100) * cells);
   return (
     <span className="tracking-[-0.05em]">
@@ -33,15 +32,17 @@ function WindowLine({ w }: { w: LatestSnapshot }) {
   const level = levelOf(w.remainingPct);
   const reset = formatResetCountdown(w.resetAt);
   return (
-    <div className="flex items-center gap-3 whitespace-nowrap">
+    <div className="flex items-center gap-2 sm:gap-3 whitespace-nowrap">
       <span className="text-ink-3 w-[52px] shrink-0">
         {WINDOW_KIND_LABEL[w.windowKind]}
       </span>
-      <Bar pct={pct} level={level} />
-      <span className={`${LEVEL_TEXT[level]} tnum w-[42px] text-right`}>
+      {/* 24 cells fills a desktop terminal; halve it on phones or the line overflows */}
+      <span className="sm:hidden"><Bar pct={pct} level={level} cells={13} /></span>
+      <span className="hidden sm:inline"><Bar pct={pct} level={level} cells={24} /></span>
+      <span className={`${LEVEL_TEXT[level]} tnum w-[42px] text-right shrink-0`}>
         {pct.toFixed(0)}%
       </span>
-      <span className="text-ink-4 tnum">{reset ? `↻ ${reset}` : "—"}</span>
+      <span className="text-ink-4 tnum truncate">{reset ? `↻ ${reset}` : "—"}</span>
     </div>
   );
 }
@@ -140,7 +141,7 @@ export function TerminalDashboard({
               </div>
             )}
 
-            <div className="text-ink-4 mb-4">{"─".repeat(64)}</div>
+            <div className="text-ink-4 mb-4 overflow-hidden whitespace-nowrap">{"─".repeat(64)}</div>
 
             {/* provider blocks */}
             <div className="space-y-3">
