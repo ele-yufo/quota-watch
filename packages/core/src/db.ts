@@ -287,7 +287,19 @@ export class QuotaDB {
   }
 
   deleteProvider(id: string): void {
-    this.db.prepare("DELETE FROM providers WHERE id = ?").run(id);
+    // FK children must go first (foreign_keys = ON, no ON DELETE CASCADE):
+    // alert_history → alert_rules → quota_snapshots, plus the un-FK'd
+    // provider_poll_state. token_events stays: it's keyed by provider slug,
+    // not id, and is legitimate history if the channel is ever re-added.
+    this.db.transaction(() => {
+      this.db
+        .prepare("DELETE FROM alert_history WHERE rule_id IN (SELECT id FROM alert_rules WHERE provider_id = ?)")
+        .run(id);
+      this.db.prepare("DELETE FROM alert_rules WHERE provider_id = ?").run(id);
+      this.db.prepare("DELETE FROM quota_snapshots WHERE provider_id = ?").run(id);
+      this.db.prepare("DELETE FROM provider_poll_state WHERE provider_id = ?").run(id);
+      this.db.prepare("DELETE FROM providers WHERE id = ?").run(id);
+    })();
   }
 
   private rowToProvider(row: Record<string, unknown>): ProviderConfig {
@@ -531,7 +543,10 @@ export class QuotaDB {
   }
 
   deleteAlertRule(id: string): void {
-    this.db.prepare("DELETE FROM alert_rules WHERE id = ?").run(id);
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM alert_history WHERE rule_id = ?").run(id);
+      this.db.prepare("DELETE FROM alert_rules WHERE id = ?").run(id);
+    })();
   }
 
   // ── Alert history / cooldown ───────────────────────────────────────

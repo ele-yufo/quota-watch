@@ -552,4 +552,71 @@ describe('QuotaScheduler', () => {
 
     scheduler.stop();
   });
+
+  // ── Provider add/remove reconciliation ───────────────────────────
+
+  it('picks up providers added after start without a restart', async () => {
+    const providers = [makeProviderConfig({ id: 'p1' })];
+    const adapter = makeMockAdapter([makeQuota(50)]);
+    const fetchSpy = vi.spyOn(adapter, 'fetchQuota');
+    const registry = makeMockRegistry(adapter);
+    const db = makeMockDb(providers);
+
+    const scheduler = new QuotaScheduler({ registry, db, baseIntervalMs: 1000 });
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchSpy.mock.calls.every((c) => (c[0] as ProviderConfig).id === 'p1')).toBe(true);
+
+    // web UI adds a provider while the daemon runs
+    providers.push(makeProviderConfig({ id: 'p2' }));
+    await vi.advanceTimersByTimeAsync(30_000); // reconcile tick
+    await vi.advanceTimersByTimeAsync(1000);   // first scheduled poll of p2
+    expect(fetchSpy.mock.calls.some((c) => (c[0] as ProviderConfig).id === 'p2')).toBe(true);
+
+    scheduler.stop();
+  });
+
+  it('stops polling a provider removed from the DB', async () => {
+    const providers = [makeProviderConfig({ id: 'p1' })];
+    const adapter = makeMockAdapter([makeQuota(50)]);
+    const fetchSpy = vi.spyOn(adapter, 'fetchQuota');
+    const registry = makeMockRegistry(adapter);
+    const db = makeMockDb(providers);
+
+    const scheduler = new QuotaScheduler({ registry, db, baseIntervalMs: 1000 });
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    const before = fetchSpy.mock.calls.length;
+    expect(before).toBeGreaterThan(0);
+
+    // user removes the provider via web/CLI
+    providers.length = 0;
+    await vi.advanceTimersByTimeAsync(30_000); // reconcile drops the timer
+    await vi.advanceTimersByTimeAsync(10_000); // any residual timer would fire here
+    expect(fetchSpy.mock.calls.length).toBe(before);
+
+    scheduler.stop();
+  });
+
+  it('a provider deleted mid-poll unschedules itself instead of crashing the loop', async () => {
+    const providers = [makeProviderConfig({ id: 'p1' })];
+    const adapter = makeMockAdapter([makeQuota(50)]);
+    const registry = makeMockRegistry(adapter);
+    const db = makeMockDb(providers);
+    const onPollError = vi.fn();
+    // simulate FK violation: snapshot insert throws, and the provider is gone
+    (db as unknown as { insertSnapshot: () => never }).insertSnapshot = () => {
+      providers.length = 0;
+      throw new Error('FOREIGN KEY constraint failed');
+    };
+
+    const scheduler = new QuotaScheduler({ registry, db, onPollError, baseIntervalMs: 1000 });
+    scheduler.start();
+    await vi.advanceTimersByTimeAsync(1000); // poll → insert throws mid-poll
+    await vi.advanceTimersByTimeAsync(10_000);
+    // not surfaced as a poll error (it isn't one), and no further crash loops
+    expect(onPollError).not.toHaveBeenCalled();
+
+    scheduler.stop();
+  });
 });

@@ -1,4 +1,4 @@
-import type { ProviderConfig, ProviderQuota, AlertRule } from './types.js';
+import type { ProviderQuota } from './types.js';
 import type { ProviderRegistry } from './providers/index.js';
 import type { QuotaDB } from './db.js';
 import { fetchWithRefresh } from './auth/token-manager.js';
@@ -25,6 +25,7 @@ const DEFAULT_BASE_MS = 15_000;
 const DEFAULT_ACTIVE_MS = 10_000;
 const DEFAULT_IDLE_MS = 60_000;
 const DEFAULT_ALERT_MS = 10_000;
+const RECONCILE_MS = 30_000;
 
 // ── Per-provider tracking state ────────────────────────────────────────
 
@@ -44,6 +45,7 @@ export class QuotaScheduler {
 
   private readonly states = new Map<string, ProviderState>();
   private running = false;
+  private reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: SchedulerConfig) {
     this.config = {
@@ -64,21 +66,50 @@ export class QuotaScheduler {
     if (this.running) return;
     this.running = true;
 
-    const providers = this.config.db.listProviders().filter((p) => p.enabled);
-    for (const provider of providers) {
-      this.scheduleProvider(provider.id);
-    }
+    this.reconcileProviders();
+
+    // Providers can be added/removed/disabled by the web UI or CLI while the
+    // daemon runs — re-sync the schedule with the DB so those changes take
+    // effect without a daemon restart (a removed provider otherwise keeps
+    // being polled: FK errors on snapshot insert, orphan poll state, and
+    // wasted calls against rate-limited upstreams).
+    this.reconcileTimer = setInterval(() => {
+      try {
+        this.reconcileProviders();
+      } catch {
+        /* DB hiccup — retry next tick */
+      }
+    }, RECONCILE_MS);
   }
 
   stop(): void {
     this.running = false;
-    for (const [id, state] of this.states) {
+    if (this.reconcileTimer !== null) {
+      clearInterval(this.reconcileTimer);
+      this.reconcileTimer = null;
+    }
+    for (const [, state] of this.states) {
       if (state.timer !== null) {
         clearInterval(state.timer);
         state.timer = null;
       }
     }
     this.states.clear();
+  }
+
+  /** Re-sync scheduled polls with the DB: schedule new/enabled, drop removed/disabled. */
+  reconcileProviders(): void {
+    if (!this.running) return;
+    const wanted = new Set(
+      this.config.db.listProviders().filter((p) => p.enabled).map((p) => p.id),
+    );
+    for (const [id, state] of this.states) {
+      if (!wanted.has(id)) {
+        if (state.timer !== null) clearInterval(state.timer);
+        this.states.delete(id);
+      }
+    }
+    for (const id of wanted) this.scheduleProvider(id);
   }
 
   isRunning(): boolean {
@@ -160,21 +191,34 @@ export class QuotaScheduler {
     // return value isn't used here: the activity buffer below tracks the raw
     // used values on EVERY poll, so idle detection still works when a window
     // holds constant (change-only writes must not starve it).
-    for (const window of quota.windows) {
-      this.config.db.insertSnapshot(
-        {
-          timestamp: quota.fetchedAt,
-          provider: quota.provider,
-          account: quota.account,
-          windowName: window.name,
-          windowKind: window.kind,
-          used: window.used,
-          total: window.total,
-          unit: window.unit,
-          resetAt: window.resetAt,
-        },
-        providerId,
-      );
+    try {
+      for (const window of quota.windows) {
+        this.config.db.insertSnapshot(
+          {
+            timestamp: quota.fetchedAt,
+            provider: quota.provider,
+            account: quota.account,
+            windowName: window.name,
+            windowKind: window.kind,
+            used: window.used,
+            total: window.total,
+            unit: window.unit,
+            resetAt: window.resetAt,
+          },
+          providerId,
+        );
+      }
+    } catch (err) {
+      // Provider deleted from the DB while this poll was in flight (FK
+      // constraint on insert) — unschedule quietly; anything else is real.
+      if (!this.config.db.getProvider(providerId)) {
+        const state = this.states.get(providerId);
+        if (state?.timer) clearInterval(state.timer);
+        this.states.delete(providerId);
+        return;
+      }
+      this.config.onPollError?.(providerId, err);
+      return;
     }
 
     // Notify callback

@@ -116,6 +116,34 @@ describe("QuotaDB", () => {
     expect(db.getProvider("openai-main")).toBeNull();
   });
 
+  it("deletes a provider with snapshots, alert rules, alert history and poll state (FK children first)", () => {
+    // Regression: the old single-statement delete threw a FK constraint error
+    // for any provider that had actually collected data — which is every real
+    // provider — making the setup page's remove button silently useless.
+    db.upsertProvider(makeProvider());
+    db.insertSnapshot(makeSnapshot(), "openai-main");
+    db.addAlertRule(makeRule());
+    db.recordAlert("rule-1", "openai-main", "daily", 15, "test alert");
+    db.recordPoll("openai-main", "ok");
+
+    db.deleteProvider("openai-main");
+
+    expect(db.getProvider("openai-main")).toBeNull();
+    expect(db.getLatestSnapshots()).toHaveLength(0);
+    expect(db.getPollState("openai-main")).toBeNull();
+    expect(db.getAlertRules("openai-main")).toHaveLength(0);
+  });
+
+  it("deletes an alert rule that has fired history (FK child first)", () => {
+    db.upsertProvider(makeProvider());
+    db.addAlertRule(makeRule());
+    db.recordAlert("rule-1", "openai-main", "daily", 15, "test alert");
+
+    db.deleteAlertRule("rule-1");
+
+    expect(db.getAlertRules("openai-main")).toHaveLength(0);
+  });
+
   // ── Snapshot insert & query ──────────────────────────────────────
 
   it("inserts and queries snapshots", () => {
