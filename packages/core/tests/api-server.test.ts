@@ -131,6 +131,32 @@ describe('daemon API server', () => {
     ]);
   });
 
+  it('GET /quota attaches live poll state so stale snapshots are detectable', async () => {
+    await listen(null);
+    await api('/poll', { method: 'POST' });
+    db.recordPoll('test-1', 'ok');
+
+    const res = await api('/quota');
+    const body = (await res.json()) as Array<{
+      providerId: string;
+      poll: { lastPollAt: string; lastStatus: string; lastError: string | null } | null;
+    }>;
+    expect(body[0]!.poll).not.toBeNull();
+    expect(body[0]!.poll!.lastStatus).toBe('ok');
+    expect(Date.parse(body[0]!.poll!.lastPollAt)).not.toBeNaN();
+
+    // a failing provider must surface status=error while keeping old windows
+    db.recordPoll('test-1', 'error', 'auth cookie likely expired');
+    const res2 = await api('/quota');
+    const body2 = (await res2.json()) as Array<{
+      poll: { lastStatus: string; lastError: string | null };
+      windows: unknown[];
+    }>;
+    expect(body2[0]!.poll.lastStatus).toBe('error');
+    expect(body2[0]!.poll.lastError).toContain('cookie');
+    expect(body2[0]!.windows.length).toBeGreaterThan(0);
+  });
+
   it('POST /poll?provider=x polls only that provider', async () => {
     await listen(null);
     const res = await api('/poll?provider=test-1', { method: 'POST' });

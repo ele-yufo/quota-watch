@@ -39,11 +39,20 @@ export interface LatestSnapshot {
   timestamp: string;
 }
 
+/** Live poll health, attached per provider by /api/quota. */
+export interface PollState {
+  lastPollAt: string;
+  lastStatus: string;
+  lastError: string | null;
+}
+
 /** One provider row of GET /api/quota. */
 export interface QuotaApiProvider {
   providerId: string;
   displayName: string;
   providerType: string;
+  enabled: boolean;
+  poll: PollState | null;
   windows: LatestSnapshot[];
 }
 
@@ -76,7 +85,10 @@ export interface CardData {
   providerId: string;
   displayName: string;
   providerType: string;
+  enabled: boolean;
   windows: LatestSnapshot[];
+  /** Live poll health — null before the first poll. */
+  poll: PollState | null;
   /** The most-at-risk window shown as the hero. null when no snapshot yet. */
   primary: LatestSnapshot | null;
 }

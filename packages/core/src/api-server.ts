@@ -73,6 +73,15 @@ export interface QuotaApiProvider {
   providerId: string;
   displayName: string;
   providerType: string;
+  /** Disabled providers are not polled — clients should not flag them stale. */
+  enabled: boolean;
+  /**
+   * Live poll health from provider_poll_state. Clients MUST consult this:
+   * windows below are change-only snapshots, so a provider stuck in error
+   * keeps serving its last good numbers — without this field stale data
+   * is indistinguishable from live data.
+   */
+  poll: { lastPollAt: string; lastStatus: string; lastError: string | null } | null;
   windows: Array<{
     windowName: string;
     windowKind: string;
@@ -113,6 +122,8 @@ export function buildQuotaResponse(db: QuotaDB): QuotaApiProvider[] {
     providerId: p.id,
     displayName: p.displayName,
     providerType: p.provider,
+    enabled: p.enabled,
+    poll: db.getPollState(p.id),
     windows: sortWindowsByKind(byPid.get(p.id) ?? [], (w) => w.windowKind).map((w) => ({
       windowName: w.windowName,
       windowKind: w.windowKind,

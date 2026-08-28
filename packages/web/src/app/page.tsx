@@ -6,6 +6,7 @@ import { WINDOW_KIND_ORDER } from "@/lib/types";
 import { ThemeProvider } from "@/lib/theme-context";
 import { Dashboard } from "@/components/dashboards/Dashboard";
 import { ControlDock } from "@/components/ControlDock";
+import { StaleDataBanner } from "@/components/StaleDataBanner";
 import { Drawer } from "@/components/Drawer";
 
 // Near-realtime dashboard: the daemon polls providers every ~10-15s, the page
@@ -33,8 +34,10 @@ async function loadCards(): Promise<CardData[]> {
       providerId: p.providerId,
       displayName: p.displayName,
       providerType: p.providerType,
+      enabled: p.enabled,
       windows,
       primary,
+      poll: p.poll ?? null,
     } satisfies CardData;
   });
 }
@@ -97,6 +100,7 @@ export default function Page() {
       {/* Controls live here, fixed and consistent across every theme, so they
           never move when the layout changes. */}
       <ControlDock polling={polling} onPollNow={pollNow} />
+      <StaleDataBanner cards={cards} daemon={daemon} onOpen={setSelected} />
 
       {status === "loading" && <FullScreenNote>loading…</FullScreenNote>}
       {status === "error" && (
