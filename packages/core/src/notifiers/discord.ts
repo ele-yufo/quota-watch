@@ -65,10 +65,13 @@ export class DiscordNotifier implements AlertNotifier {
 
   async send(message: AlertMessage): Promise<void> {
     const body = buildDiscordPayload(message);
+    // No timeout here → a hung webhook wedges the whole alert engine (and the
+    // scheduler awaiting it) forever.
     const res = await fetch(this.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       throw new Error(`Discord webhook failed: ${res.status} ${res.statusText}`);

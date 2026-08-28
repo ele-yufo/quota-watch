@@ -5,7 +5,7 @@
  * touching code. Missing file or fields fall back to defaults; a corrupt file
  * is treated as absent (never crashes the daemon).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -89,7 +89,11 @@ export function loadAppConfig(path: string = defaultConfigPath()): AppConfig {
 export function saveAppConfig(config: AppConfig, path: string = defaultConfigPath()): void {
   const dir = dirname(path);
   if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  // Atomic: config.json holds the API token — a crash mid-write leaving a
+  // truncated file would lock every client out on next boot.
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  renameSync(tmp, path);
 }
 
 export function isLoopbackHost(host: string): boolean {

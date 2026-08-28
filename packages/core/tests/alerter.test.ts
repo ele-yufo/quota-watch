@@ -158,7 +158,50 @@ describe('AlertEngine', () => {
 
     expect(sendSpy).toHaveBeenCalledTimes(1);
     expect(notifier2Send).toHaveBeenCalledTimes(1);
-    expect(db.recordAlert).toHaveBeenCalledTimes(2);
+    // Rule-wide history: ONE record per rule firing, not per channel — a
+    // per-channel record would let one success suppress a failed sibling's
+    // retry via the cooldown check.
+    expect(db.recordAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries only the failed channel on later polls, without re-firing healthy ones', async () => {
+    const failingSend = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('webhook 500'))
+      .mockResolvedValue(undefined);
+    const failing: AlertNotifier = { send: failingSend };
+    const rule = makeRule({ channels: ['discord_webhook', 'macos_notification'] });
+    const db = mockDb({
+      getAlertRules: vi.fn().mockReturnValue([rule]),
+      // Cooldown active after the first firing — retry must bypass it.
+      shouldFireAlert: vi.fn().mockReturnValueOnce(true).mockReturnValue(false),
+    });
+    const engine = new AlertEngine(
+      db,
+      new Map<string, AlertNotifier>([
+        ['discord_webhook', notifier],
+        ['macos_notification', failing],
+      ]),
+    );
+    const quota = makeQuota({ windows: [makeWindow({ remainingPct: 10 })] });
+
+    // First firing: both channels attempted, one fails; history recorded so
+    // the cooldown suppresses re-firing the HEALTHY channel.
+    await engine.evaluate('openai', quota);
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(failingSend).toHaveBeenCalledTimes(1);
+    expect(db.recordAlert).toHaveBeenCalledTimes(1);
+
+    // Second poll: cooldown blocks the rule, but the failed channel retries
+    // alone — and succeeds, clearing the stash.
+    await engine.evaluate('openai', quota);
+    expect(sendSpy).toHaveBeenCalledTimes(1); // healthy channel NOT re-fired
+    expect(failingSend).toHaveBeenCalledTimes(2);
+    expect(db.recordAlert).toHaveBeenCalledTimes(1);
+
+    // Third poll: stash empty + cooldown → nothing at all.
+    await engine.evaluate('openai', quota);
+    expect(failingSend).toHaveBeenCalledTimes(2);
   });
 
   it('skips unknown notifier channels gracefully', async () => {

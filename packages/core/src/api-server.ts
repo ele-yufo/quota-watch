@@ -311,7 +311,10 @@ export function startApiServer(options: ApiServerOptions): Promise<Server> {
 
       // ── MCP (streamable HTTP) — same Bearer gate as every other route. ──
       if (url.pathname === "/mcp" && options.mcpHandler) {
-        const body = req.method === "POST" ? await readJsonBody(req) : undefined;
+        // MCP tools/call payloads (params + context) blow past the 4KB default
+        // used by the pairing routes — a truncated body parses to null and the
+        // call dies mysteriously. 1MB is still far from abuse territory.
+        const body = req.method === "POST" ? await readJsonBody(req, 1_048_576) : undefined;
         if (await options.mcpHandler(req, res, body)) return;
       }
 

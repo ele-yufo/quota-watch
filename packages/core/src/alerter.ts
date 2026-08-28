@@ -1,4 +1,4 @@
-import type { ProviderQuota, AlertRule, QuotaWindow } from './types.js';
+import type { ProviderQuota, QuotaWindow } from './types.js';
 import type { QuotaDB } from './db.js';
 
 export interface AlertNotifier {
@@ -24,6 +24,19 @@ export class AlertEngine {
   ) {}
 
   /**
+   * Channels that threw on a previous firing, keyed by rule id. Rule-wide
+   * alert history starts the cooldown after the FIRST firing (even a partial
+   * one) so healthy channels are never re-spammed; stashed channels are
+   * retried on every poll until they succeed — a channel that never delivers
+   * hasn't alerted anyone, so retrying it is free.
+   */
+  private failedChannels = new Map<string, Set<string>>();
+
+  /** Rules currently mid-send — the cooldown check-then-record is not atomic,
+   *  and overlapping timer/manual polls would otherwise both pass it. */
+  private inFlight = new Set<string>();
+
+  /**
    * Evaluate all alert rules against a fresh quota snapshot.
    * Fires notifications for rules that are triggered and not in cooldown.
    */
@@ -38,31 +51,66 @@ export class AlertEngine {
 
       if (window.remainingPct >= rule.thresholdPct) continue;
 
-      if (!this.db.shouldFireAlert(rule.id, rule.cooldownMs)) continue;
+      const pendingRetry = this.failedChannels.get(rule.id);
+      if (!pendingRetry && !this.db.shouldFireAlert(rule.id, rule.cooldownMs)) continue;
+      if (this.inFlight.has(rule.id)) continue;
+      this.inFlight.add(rule.id);
 
-      const message: AlertMessage = {
-        provider: quota.provider,
-        plan: quota.plan,
-        window,
-        thresholdPct: rule.thresholdPct,
-        channel: '', // filled per-channel below
-        remainingPct: window.remainingPct,
-        resetAt: window.resetAt,
-      };
+      try {
+        const message: AlertMessage = {
+          provider: quota.provider,
+          plan: quota.plan,
+          window,
+          thresholdPct: rule.thresholdPct,
+          channel: '', // filled per-channel below
+          remainingPct: window.remainingPct,
+          resetAt: window.resetAt,
+        };
 
-      for (const channel of rule.channels) {
-        const notifier = this.notifiers.get(channel);
-        if (!notifier) continue;
+        // Retry pass: only the channels that failed last time. First firing: all.
+        const channelsToTry = pendingRetry
+          ? rule.channels.filter((c) => pendingRetry.has(c))
+          : rule.channels;
 
-        const msgForChannel: AlertMessage = { ...message, channel };
-        await notifier.send(msgForChannel);
-        this.db.recordAlert(
-          rule.id,
-          providerId,
-          window.name,
-          window.remainingPct,
-          JSON.stringify(msgForChannel),
-        );
+        const failed: string[] = [];
+        for (const channel of channelsToTry) {
+          const notifier = this.notifiers.get(channel);
+          // A channel with no registered notifier is a CONFIG error, not a
+          // transient failure — never stash it (it would retry forever).
+          if (!notifier) continue;
+
+          try {
+            await notifier.send({ ...message, channel });
+          } catch (err) {
+            // One channel throwing (Discord down, webhook 5xx…) must not kill
+            // the remaining channels.
+            console.error(
+              `[alerter] channel ${channel} failed for ${providerId}/${window.name}:`,
+              err instanceof Error ? err.message : err,
+            );
+            failed.push(channel);
+          }
+        }
+
+        if (failed.length > 0) {
+          this.failedChannels.set(rule.id, new Set(failed));
+        } else {
+          this.failedChannels.delete(rule.id);
+        }
+        // Record only the FIRST firing of a rule (starts the cooldown);
+        // retry passes don't touch history. Nothing recorded when no
+        // registered channel exists at all.
+        if (!pendingRetry && rule.channels.some((c) => this.notifiers.has(c))) {
+          this.db.recordAlert(
+            rule.id,
+            providerId,
+            window.name,
+            window.remainingPct,
+            JSON.stringify(message),
+          );
+        }
+      } finally {
+        this.inFlight.delete(rule.id);
       }
     }
   }

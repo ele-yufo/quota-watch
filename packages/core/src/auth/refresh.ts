@@ -15,9 +15,12 @@
  * Endpoints reverse-engineered from Claude Code 2.1.196 and Codex 0.137.0.
  */
 import { homedir } from "node:os";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { antigravityTokensPath } from "./credential-source.js";
+
+/** Refresh HTTP timeout — a hung token endpoint must not wedge the poll loop. */
+const REFRESH_TIMEOUT_MS = 15_000;
 
 export interface RefreshedTokens {
   accessToken: string;
@@ -134,7 +137,10 @@ async function refreshWithSpec(
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams(body).toString(),
           };
-    const res = await globalThis.fetch(spec.tokenUrl, init);
+    const res = await globalThis.fetch(spec.tokenUrl, {
+      ...init,
+      signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+    });
     if (!res.ok) return null;
     const data = (await res.json()) as {
       access_token?: string;
@@ -182,7 +188,14 @@ export async function refreshAndPersist(providerSlug: string): Promise<Refreshed
   if (refreshed) {
     try {
       spec.writeTokens(raw, refreshed);
-      writeFileSync(filePath, JSON.stringify(raw, null, 2));
+      // Atomic write: a crash mid-writeFileSync would leave the OFFICIAL CLI's
+      // credential file half-written — breaking the user's `claude`/`codex`
+      // login, not just ours. tmp+rename is crash-safe. (Lost-update against a
+      // concurrent CLI refresh remains possible; both token sets are valid, so
+      // the damage is bounded to a slightly-older expiry.)
+      const tmp = `${filePath}.qw-tmp`;
+      writeFileSync(tmp, JSON.stringify(raw, null, 2), { mode: 0o600 });
+      renameSync(tmp, filePath);
     } catch {
       // best effort — refresh succeeded in-memory; file write failure (concurrent
       // CLI write truncating the file, EACCES) must not crash the poll loop.
