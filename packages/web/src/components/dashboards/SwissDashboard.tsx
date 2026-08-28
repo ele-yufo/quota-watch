@@ -1,7 +1,7 @@
 "use client";
 
 import type { CardData, LatestSnapshot } from "@/lib/types";
-import { WINDOW_KIND_LABEL } from "@/lib/types";
+import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
 import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
 
@@ -30,7 +30,7 @@ function WindowCell({ w }: { w: LatestSnapshot }) {
     <div className="min-w-0">
       <div className="flex items-baseline justify-between mb-1.5 gap-2">
         <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-ink-3 truncate min-w-0">
-          {WINDOW_KIND_LABEL[w.windowKind]} · {w.windowName}
+          {windowKindLabel(w.windowKind)} · {w.windowName}
         </span>
         <span className="font-mono text-[10px] text-ink-4 shrink-0">{reset ? `↻ ${reset}` : ""}</span>
       </div>

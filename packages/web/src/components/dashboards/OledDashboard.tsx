@@ -1,7 +1,7 @@
 "use client";
 
 import type { CardData } from "@/lib/types";
-import { WINDOW_KIND_LABEL } from "@/lib/types";
+import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
 import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
 
@@ -51,7 +51,7 @@ function Tile({ card, onSelect }: { card: CardData; onSelect: (c: CardData) => v
             </span>
             <span className={`${LEVEL_TEXT[level]} text-[26px] font-light mb-2`}>%</span>
             <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-4 mb-4 ml-1">
-              {WINDOW_KIND_LABEL[primary.windowKind]} used
+              {windowKindLabel(primary.windowKind)} used
             </span>
           </div>
 
@@ -68,7 +68,7 @@ function Tile({ card, onSelect }: { card: CardData; onSelect: (c: CardData) => v
                 const l = levelOf(w.remainingPct);
                 return (
                   <span key={w.windowName} className="font-mono text-[11px] text-ink-3">
-                    <span className="text-ink-4">{WINDOW_KIND_LABEL[w.windowKind]}</span>{" "}
+                    <span className="text-ink-4">{windowKindLabel(w.windowKind)}</span>{" "}
                     <span className={`${LEVEL_TEXT[l]} tnum`}>{usedPct(w.remainingPct).toFixed(0)}%</span>
                   </span>
                 );

@@ -71,7 +71,10 @@ export default function Page() {
       setUpdatedAt(Date.now());
       setStatus("ready");
     } catch {
-      setStatus("error");
+      // A transient fetch failure must not wipe an already-rendered dashboard
+      // with a full-screen error — keep the last good cards (the stale banner
+      // already flags age). Only the never-loaded state gets the error screen.
+      setStatus((s) => (s === "loading" ? "error" : s));
     } finally {
       running.current = false;
     }
@@ -94,6 +97,14 @@ export default function Page() {
     const id = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // The drawer's provider disappeared from the latest data (removed in setup,
+  // or its rows pruned) — close it instead of showing the frozen snapshot.
+  useEffect(() => {
+    if (selected && status === "ready" && !cards.some((c) => c.providerId === selected.providerId)) {
+      setSelected(null);
+    }
+  }, [cards, selected, status]);
 
   return (
     <ThemeProvider>
@@ -126,7 +137,14 @@ export default function Page() {
         />
       )}
 
-      {selected && <Drawer card={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        // Re-resolve against the latest cards every refresh — rendering the
+        // frozen click-time snapshot shows stale numbers as live in the drawer.
+        <Drawer
+          card={cards.find((c) => c.providerId === selected.providerId) ?? selected}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </ThemeProvider>
   );
 }

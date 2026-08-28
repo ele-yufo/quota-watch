@@ -29,11 +29,12 @@ interface TokensApiProvider {
   windows: TokensApiWindow[];
 }
 
-/** 1234567 → "1.23M" */
+/** 1234567 → "1.23M" — small values get rounded too ("512.3847561/h" is not a number humans read). */
 function fmtTokens(n: number): string {
+  if (!Number.isFinite(n)) return "—";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
+  return String(Math.round(n));
 }
 
 function TokenSection({ providerId }: { providerId: string }) {

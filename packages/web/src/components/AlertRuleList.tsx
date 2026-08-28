@@ -33,6 +33,7 @@ export function AlertRuleList({ providerId, windows }: Props) {
         { cache: "no-store" },
       );
       if (r.ok) setRules(await r.json());
+      else setError(`加载告警规则失败（HTTP ${r.status}）`);
     } catch {
       setError("加载告警规则失败");
     }
@@ -77,8 +78,20 @@ export function AlertRuleList({ providerId, windows }: Props) {
   }
 
   async function deleteRule(id: string) {
-    setRules((rs) => rs.filter((r) => r.id !== id));
-    await fetch(`/api/alert?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    setError(null);
+    try {
+      const r = await fetch(`/api/alert?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        setError(body.error ?? `删除失败（HTTP ${r.status}）`);
+        return;
+      }
+      // Remove only after the server confirms — optimistic removal made a
+      // failed delete look gone until the next reload.
+      setRules((rs) => rs.filter((r) => r.id !== id));
+    } catch {
+      setError("删除失败：网络错误");
+    }
   }
 
   return (

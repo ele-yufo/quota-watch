@@ -11,9 +11,22 @@ import { type NextRequest } from 'next/server';
 
 const DB_PATH = join(homedir(), '.quota-watch', 'data.db');
 
+/** Open the DB as JSON-500 on failure — a raw throw renders an HTML error page. */
+function openDb(): QuotaDB | Response {
+  try {
+    return new QuotaDB(DB_PATH);
+  } catch (err) {
+    return Response.json(
+      { error: `database unavailable: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
+    );
+  }
+}
+
 /** GET — list provider auth metadata + currently configured providers. */
 export async function GET() {
-  const db = new QuotaDB(DB_PATH);
+  const db = openDb();
+  if (db instanceof Response) return db;
   try {
     const configured = db.listProviders().map((p) => ({
       id: p.id,
@@ -80,7 +93,8 @@ export async function POST(request: NextRequest) {
     createdAt: now,
     updatedAt: now,
   };
-  const db = new QuotaDB(DB_PATH);
+  const db = openDb();
+  if (db instanceof Response) return db;
   try {
     const existing = db.listProviders().find((p) => p.provider === slug);
     if (existing) {
@@ -106,10 +120,23 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const id = request.nextUrl.searchParams.get('id');
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
-  const db = new QuotaDB(DB_PATH);
+  let db: QuotaDB;
+  try {
+    db = new QuotaDB(DB_PATH);
+  } catch (err) {
+    return Response.json(
+      { error: err instanceof Error ? err.message : 'db open failed' },
+      { status: 500 },
+    );
+  }
   try {
     db.deleteProvider(id);
     return Response.json({ ok: true });
+  } catch (err) {
+    return Response.json(
+      { error: err instanceof Error ? err.message : 'delete failed' },
+      { status: 500 },
+    );
   } finally {
     db.close();
   }

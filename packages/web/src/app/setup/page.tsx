@@ -54,10 +54,16 @@ export default function SetupPage() {
         fetch("/api/providers", { cache: "no-store" }),
         fetch("/api/daemon", { cache: "no-store" }),
       ]);
-      if (providersRes.ok) setData(await providersRes.json());
+      // A !ok providers response must surface — otherwise `data` stays null
+      // and the user stares at "loading…" forever.
+      if (providersRes.ok) {
+        setData(await providersRes.json());
+      } else {
+        setError(`加载渠道列表失败（HTTP ${providersRes.status}）`);
+      }
       if (daemonRes.ok) setDaemon(await daemonRes.json());
     } catch {
-      setError("加载失败");
+      setError("加载失败：网络错误");
     }
   }, []);
 
@@ -82,14 +88,19 @@ export default function SetupPage() {
   async function connect(slug: string, autoImport = false) {
     setBusy(slug);
     setError(null);
-    const r = await fetch("/api/providers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(autoImport ? { slug, autoImport: true } : { slug }),
-    });
-    if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "连接失败"));
-    setBusy(null);
-    await load();
+    try {
+      const r = await fetch("/api/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(autoImport ? { slug, autoImport: true } : { slug }),
+      });
+      if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "连接失败"));
+      await load();
+    } catch {
+      setError("连接失败：网络错误");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function saveFields(slug: string, fields: CredentialField[]) {
@@ -97,20 +108,35 @@ export default function SetupPage() {
     if (fields.some((f) => !values[f.key]?.trim())) return;
     setBusy(slug);
     setError(null);
-    const r = await fetch("/api/providers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, credentials: values }),
-    });
-    if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "保存失败"));
-    setBusy(null);
-    setFieldValues((v) => ({ ...v, [slug]: {} }));
-    await load();
+    try {
+      const r = await fetch("/api/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, credentials: values }),
+      });
+      if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "保存失败"));
+      else setFieldValues((v) => ({ ...v, [slug]: {} }));
+      await load();
+    } catch {
+      setError("保存失败：网络错误");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function remove(id: string) {
-    await fetch(`/api/providers?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    await load();
+    setError(null);
+    try {
+      const r = await fetch(`/api/providers?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => null);
+        setError(body?.error ?? `移除失败（HTTP ${r.status}）`);
+        return;
+      }
+      await load();
+    } catch {
+      setError("移除失败：网络错误");
+    }
   }
 
   const configuredCount = data?.configured.length ?? 0;

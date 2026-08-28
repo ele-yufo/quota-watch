@@ -61,10 +61,12 @@ export function formatDuration(ms: number): string {
   return `${m}m`;
 }
 
-/** "3d 04h" / "now" / null if no resetAt. */
+/** "3d 04h" / "now" / null if no resetAt. Garbage timestamps parse to NaN —
+ *  NaN <= 0 is false, so without the guard this returns "NaNm". */
 export function formatResetCountdown(resetAt: string | null): string | null {
   if (!resetAt) return null;
   const ms = new Date(resetAt).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
   if (ms <= 0) return "now";
   return formatDuration(ms);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import type { CardData, LatestSnapshot } from "@/lib/types";
-import { WINDOW_KIND_LABEL } from "@/lib/types";
+import { windowKindLabel } from "@/lib/types";
 import { InkBand } from "./InkBand";
 import {
   formatResetCountdown,
@@ -36,7 +36,7 @@ function WindowCell({ snap }: { snap: LatestSnapshot }) {
     <div className="min-w-0 flex-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-[9px] tracking-[0.16em] uppercase text-ink-3 truncate">
-          <span className="text-ink-2">{WINDOW_KIND_LABEL[snap.windowKind]}</span>
+          <span className="text-ink-2">{windowKindLabel(snap.windowKind)}</span>
           {" · "}
           {snap.windowName}
         </span>
@@ -82,6 +82,17 @@ export function ProviderRow({ card, onOpen }: ProviderRowProps) {
   return (
     <article
       onClick={clickable ? () => onOpen!(card) : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen!(card);
+              }
+            }
+          : undefined
+      }
+      role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
       className={`group relative grid grid-cols-1 gap-3 px-4 py-4 sm:grid-cols-[minmax(130px,180px)_1fr_1fr_1fr_auto] sm:items-center sm:gap-5 sm:px-5 bg-paper border-t border-line-soft ${
         clickable

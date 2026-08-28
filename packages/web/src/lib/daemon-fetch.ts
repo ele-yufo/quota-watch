@@ -58,6 +58,11 @@ export function fetchDaemon(
             },
           }),
         );
+        // Socket dying mid-body fires 'error'/'aborted', never 'end' — without
+        // these the promise NEVER settles and the dashboard's poll mutex
+        // (running.current) wedges, freezing the page until reload.
+        res.on('error', () => resolve({ ok: false, status: 0, json: async () => null }));
+        res.on('aborted', () => resolve({ ok: false, status: 0, json: async () => null }));
       },
     );
     req.on('error', () => resolve({ ok: false, status: 0, json: async () => null }));

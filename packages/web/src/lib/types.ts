@@ -27,6 +27,15 @@ export const WINDOW_KIND_LABEL: Record<WindowKind, string> = {
   unknown: '—',
 };
 
+/**
+ * Safe label lookup. `windowKind` is typed WindowKind but the DB can carry
+ * legacy/future strings at runtime — indexing WINDOW_KIND_LABEL directly
+ * yields undefined, and one `.toUpperCase()` on it crashes the whole page.
+ */
+export function windowKindLabel(kind: string): string {
+  return WINDOW_KIND_LABEL[kind as WindowKind] ?? (kind ? kind.toUpperCase() : '—');
+}
+
 /** One window row of GET /api/quota (latest snapshot per provider×window). */
 export interface LatestSnapshot {
   windowName: string;

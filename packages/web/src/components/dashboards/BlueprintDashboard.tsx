@@ -1,7 +1,7 @@
 "use client";
 
 import type { CardData, LatestSnapshot } from "@/lib/types";
-import { WINDOW_KIND_LABEL } from "@/lib/types";
+import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
 import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
 
@@ -66,7 +66,7 @@ function Gauge({ w }: { w: LatestSnapshot }) {
           {pct.toFixed(0)}
         </text>
         <text x="48" y="60" textAnchor="middle" className="font-mono" style={{ fontSize: 8, letterSpacing: "0.1em", fill: "var(--color-ink-3)" }}>
-          {WINDOW_KIND_LABEL[w.windowKind].toUpperCase()}
+          {windowKindLabel(w.windowKind)}
         </text>
       </svg>
       <div className="mt-1 font-mono text-[9px] tracking-[0.08em] text-ink-4">

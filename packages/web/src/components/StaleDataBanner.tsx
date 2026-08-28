@@ -57,7 +57,7 @@ export function StaleDataBanner({ cards, daemon, onOpen }: Props) {
             className="text-left font-mono text-[11px] text-ink-2 hover:text-ink leading-snug"
           >
             <span className="text-vermillion">✕</span> {c.displayName}
-            {c.poll?.lastPollAt ? ` · ${ageOf(c.poll.lastPollAt)}前` : ""}：{c.poll?.lastError ?? (c.poll ? "轮询停滞" : "从未成功轮询")}
+            {c.poll?.lastPollAt && ageOf(c.poll.lastPollAt) ? ` · ${ageOf(c.poll.lastPollAt)}前` : ""}：{c.poll?.lastError ?? (c.poll ? "轮询停滞" : "从未成功轮询")}
             <span className="text-ink-4">（数字是旧快照）</span>
           </button>
         ))}

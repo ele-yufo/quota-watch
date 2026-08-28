@@ -1,7 +1,7 @@
 "use client";
 
 import type { CardData, LatestSnapshot } from "@/lib/types";
-import { WINDOW_KIND_LABEL } from "@/lib/types";
+import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
 import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
 
@@ -34,7 +34,7 @@ function WindowLine({ w }: { w: LatestSnapshot }) {
   return (
     <div className="flex items-center gap-2 sm:gap-3 whitespace-nowrap">
       <span className="text-ink-3 w-[52px] shrink-0">
-        {WINDOW_KIND_LABEL[w.windowKind]}
+        {windowKindLabel(w.windowKind)}
       </span>
       {/* 24 cells fills a desktop terminal; halve it on phones or the line overflows */}
       <span className="sm:hidden"><Bar pct={pct} level={level} cells={13} /></span>

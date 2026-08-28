@@ -10,7 +10,17 @@ const DB_PATH = join(homedir(), '.quota-watch', 'data.db');
  * so web + iOS render identically.
  */
 export async function GET() {
-  const db = new QuotaDB(DB_PATH);
+  let db: QuotaDB;
+  try {
+    db = new QuotaDB(DB_PATH);
+  } catch (err) {
+    // A raw throw renders an HTML error page the dashboard can't parse —
+    // respond JSON so the client shows its retry state instead.
+    return Response.json(
+      { error: `database unavailable: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
+    );
+  }
   try {
     return Response.json(buildQuotaResponse(db));
   } finally {
