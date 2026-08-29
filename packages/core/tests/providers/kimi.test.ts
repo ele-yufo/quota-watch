@@ -202,6 +202,74 @@ describe('kimiProvider', () => {
     expect(result.windows[0].name).toBe('weekly (7d)');
   });
 
+  // duration is meaningless without timeUnit: 300 SECONDS is 5 minutes, not
+  // the 5h session — matching the raw number would mislabel it (GLM lesson).
+  it('does NOT match a 300-second window as the 5h session', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          usage: mockUsagesResponse.usage,
+          limits: [
+            {
+              window: { duration: 300, timeUnit: 'TIME_UNIT_SECOND' },
+              detail: { limit: '50', used: '10' },
+            },
+          ],
+        }),
+    });
+
+    const result = await kimiProvider.fetchQuota(makeConfig());
+    expect(result.windows).toHaveLength(1);
+    expect(result.windows[0].name).toBe('weekly (7d)');
+  });
+
+  it('matches a session expressed in hours (duration 5, TIME_UNIT_HOUR)', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          usage: mockUsagesResponse.usage,
+          limits: [
+            {
+              window: { duration: 5, timeUnit: 'TIME_UNIT_HOUR' },
+              detail: { limit: '100', used: '25' },
+            },
+          ],
+        }),
+    });
+
+    const result = await kimiProvider.fetchQuota(makeConfig());
+    const session = result.windows.find((w) => w.name === 'session (5h)');
+    expect(session).toBeDefined();
+    expect(session?.used).toBe(25);
+  });
+
+  // An explicitly unrecognized timeUnit must NOT fall back to minutes —
+  // duration=300 with an unknown unit is not evidence of a 5h window.
+  it('ignores a window with an unrecognized timeUnit', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          usage: mockUsagesResponse.usage,
+          limits: [
+            {
+              window: { duration: 300, timeUnit: 'TIME_UNIT_UNSPECIFIED' },
+              detail: { limit: '50', used: '10' },
+            },
+          ],
+        }),
+    });
+
+    const result = await kimiProvider.fetchQuota(makeConfig());
+    expect(result.windows).toHaveLength(1);
+    expect(result.windows[0].name).toBe('weekly (7d)');
+  });
+
   it('returns only session window when top-level usage is missing', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

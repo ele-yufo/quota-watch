@@ -48,6 +48,23 @@ function toWindow(name: string, kind: WindowKind, d: KimiUsageItem): QuotaWindow
   };
 }
 
+// Identify the 5h session by window.duration CONVERTED via timeUnit — never by
+// the raw number: duration=300 means 300 minutes only because timeUnit says so.
+// An unknown timeUnit keeps the legacy duration===300 reading (backward compat).
+const TIME_UNIT_MINUTES: Record<string, number> = {
+  TIME_UNIT_SECOND: 1 / 60,
+  TIME_UNIT_MINUTE: 1,
+  TIME_UNIT_HOUR: 60,
+  TIME_UNIT_DAY: 1440,
+};
+
+function windowMinutes(l: { duration?: number; timeUnit?: string }): number | null {
+  if (l.duration == null || !Number.isFinite(l.duration)) return null;
+  if (l.timeUnit == null) return l.duration; // legacy: absent unit reads as minutes
+  const factor = TIME_UNIT_MINUTES[l.timeUnit];
+  return factor == null ? null : l.duration * factor; // unknown unit: don't guess
+}
+
 export const kimiProvider: ProviderAdapter = {
   id: 'kimi',
   displayName: 'Kimi',
@@ -70,8 +87,8 @@ export const kimiProvider: ProviderAdapter = {
     }
 
     const windows: QuotaWindow[] = [];
-    // 5h session: the limit whose window.duration === 300 minutes
-    const session = res.data.limits?.find((l) => l.window?.duration === 300);
+    // 5h session: the limit whose window spans 300 minutes after unit conversion
+    const session = res.data.limits?.find((l) => windowMinutes(l.window ?? {}) === 300);
     if (session?.detail) {
       const w = toWindow('session (5h)', 'session', session.detail);
       if (w) windows.push(w);
