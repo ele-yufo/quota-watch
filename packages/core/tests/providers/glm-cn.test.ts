@@ -29,8 +29,10 @@ function mockFetch(response: { status?: number; ok?: boolean; body?: unknown; st
   return mock;
 }
 
-// GLM Coding Plan monitor API — real response shape.
-// Two TOKENS_LIMIT entries (5h session + weekly 7d) + one TIME_LIMIT (ignored).
+// GLM Coding Plan monitor API — real response shape (verified against
+// production 2026-08-29). unit 3 = hours (5h rolling session, NO
+// nextResetTime), unit 6 = weeks (weekly, reset at the week boundary).
+// TIME_LIMIT entries (search/reader quota) are ignored.
 const SESSION_RESET = 1782960937355;
 const WEEKLY_RESET = 1783303263991;
 const TIME_RESET = 1784512863998;
@@ -39,9 +41,9 @@ const mockMonitorResponse = {
   msg: '操作成功',
   data: {
     limits: [
-      { type: 'TOKENS_LIMIT', percentage: 7, nextResetTime: SESSION_RESET },
-      { type: 'TOKENS_LIMIT', percentage: 84, nextResetTime: WEEKLY_RESET },
-      { type: 'TIME_LIMIT', percentage: 6, nextResetTime: TIME_RESET },
+      { type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 7, nextResetTime: SESSION_RESET },
+      { type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 84, nextResetTime: WEEKLY_RESET },
+      { type: 'TIME_LIMIT', unit: 5, number: 1, percentage: 6, nextResetTime: TIME_RESET },
     ],
     level: 'max',
   },
@@ -105,16 +107,16 @@ describe('glmCnProvider', () => {
 
   // ── sorts TOKENS_LIMIT by nextResetTime ascending ──────────────
 
-  it('assigns session/weekly by resetTime order regardless of input order', async () => {
-    // Provide weekly first, session second — adapter must sort.
+  it('assigns session/weekly by unit regardless of input order', async () => {
+    // Provide weekly first, session second — adapter must not care.
     mockFetch({
       body: {
         code: 200,
         success: true,
         data: {
           limits: [
-            { type: 'TOKENS_LIMIT', percentage: 84, nextResetTime: WEEKLY_RESET },
-            { type: 'TOKENS_LIMIT', percentage: 7, nextResetTime: SESSION_RESET },
+            { type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 84, nextResetTime: WEEKLY_RESET },
+            { type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 7, nextResetTime: SESSION_RESET },
           ],
           level: 'max',
         },
@@ -127,6 +129,65 @@ describe('glmCnProvider', () => {
     expect(result.windows[0].used).toBe(7);
     expect(result.windows[1].name).toBe('weekly (7d)');
     expect(result.windows[1].used).toBe(84);
+  });
+
+  // One slot recognized by unit, the other carrying an unknown unit — the
+  // unknown entry must still fill its slot, not vanish (weekly exhaustion
+  // would go invisible).
+  it('fills a missing slot from an entry with an unknown unit', async () => {
+    mockFetch({
+      body: {
+        code: 200,
+        success: true,
+        data: {
+          limits: [
+            { type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 10 },
+            { type: 'TOKENS_LIMIT', unit: 99, number: 1, percentage: 100, nextResetTime: WEEKLY_RESET },
+          ],
+          level: 'max',
+        },
+      },
+    });
+
+    const result = await glmCnProvider.fetchQuota(makeConfig());
+    expect(result.windows).toHaveLength(2);
+    expect(result.windows[0].name).toBe('session (5h)');
+    expect(result.windows[0].used).toBe(10);
+    expect(result.windows[1].name).toBe('weekly (7d)');
+    expect(result.windows[1].used).toBe(100);
+  });
+  // entry (unit=3) carries NO nextResetTime, weekly (unit=6) is 100% used.
+  // Regression (2026-08-29): the exhausted-weekly production response — session
+  // entry (unit=3) carries NO nextResetTime, weekly (unit=6) is 100% used.
+  // Reset-time sorting labeled the exhausted week as "session (5h)" and the
+  // fresh session as "weekly (7d)" — exactly inverted.
+  it('maps the real exhausted-weekly shape: no-reset unit=3 is the session', async () => {
+    mockFetch({
+      body: {
+        code: 200,
+        success: true,
+        data: {
+          limits: [
+            { type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 0 },
+            { type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 100, nextResetTime: WEEKLY_RESET },
+          ],
+          level: 'max',
+        },
+      },
+    });
+
+    const result = await glmCnProvider.fetchQuota(makeConfig());
+    expect(result.windows).toHaveLength(2);
+    const session = result.windows[0];
+    expect(session.name).toBe('session (5h)');
+    expect(session.used).toBe(0);
+    expect(session.remainingPct).toBe(100);
+    expect(session.resetAt).toBeNull(); // API omits it — no fake resetAt
+    const weekly = result.windows[1];
+    expect(weekly.name).toBe('weekly (7d)');
+    expect(weekly.used).toBe(100);
+    expect(weekly.remainingPct).toBe(0);
+    expect(weekly.resetAt).toBe(new Date(WEEKLY_RESET).toISOString());
   });
 
   // ── auth_expired ───────────────────────────────────────────────
