@@ -3,35 +3,47 @@ import SQLite3
 import SwiftUI
 
 /// Reads quota data from the same SQLite database used by the CLI (~/.quota-watch/data.db).
+///
+/// Severity model (the whole point of the rewrite): a window at 0% remaining
+/// is EXHAUSTED — it can't be fixed, only waited out, so it must not drive the
+/// menu-bar alarm color. The icon and headline number follow the worst
+/// ACTIONABLE window (remaining > 0); exhausted windows render dimmed.
 @MainActor
 class QuotaStore: ObservableObject {
     @Published var providerGroups: [ProviderGroup] = []
-    @Published var worstItem: QuotaItem? = nil
+    /// Worst window that can still be acted on (remaining > 0). Drives the
+    /// menu-bar number + color. Nil when everything is exhausted or fresh.
+    @Published var worstActionable: QuotaItem? = nil
+    /// Windows at 0% remaining — surfaced dimmed, never as red alarm.
+    @Published var exhaustedCount: Int = 0
     @Published var lastUpdated: Date? = nil
     /// Newest last_poll_at across providers — daemon liveness. Snapshot
     /// timestamps can't prove freshness (change-only writes keep them old by
     /// design); this can. Nil when the daemon has never polled.
     @Published var lastPollAt: Date? = nil
     @Published var errorMessage: String? = nil
+    /// 24h used-% history per window (oldest → newest, timestamps kept so the
+    /// sparkline can place points by TIME, not by index).
+    @Published var history: [String: [(t: Date, usedPct: Double)]] = [:]
+
+    /// Remaining-% below which a window warns — early enough to still act
+    /// (switch provider, slow down). User-adjustable, persisted.
+    @Published var alertThresholdPct: Double {
+        didSet { UserDefaults.standard.set(alertThresholdPct, forKey: "alertThresholdPct") }
+    }
 
     private var timer: Timer?
     private var dbPath: String
 
-    /// Remaining-% at which a window first warns — early enough that the user
-    /// can still act (switch provider, slow down) instead of being told after
-    /// it's already exhausted.
-    private let alertThresholdPct: Double = 20
-
     /// Windows that have already fired their single alert for the current
     /// period. An id is cleared once its window recovers above the threshold
-    /// (i.e. it reset), re-arming it for the next period. This is what makes
-    /// alerts edge-triggered / once — never the old per-refresh spam.
+    /// (i.e. it reset), re-arming it for the next period — edge-triggered,
+    /// never per-refresh spam.
     private var alertedWindowIds: Set<String> = []
 
     /// On the very first refresh we adopt whatever is already low as
     /// "already alerted", so launching (e.g. at login) never fires a burst of
-    /// notifications for pre-existing low state — only in-session threshold
-    /// crossings notify. The menu-bar color already surfaces the standing state.
+    /// notifications for pre-existing low state — only in-session crossings.
     private var didSeedAlerts = false
 
     // MARK: - Models
@@ -51,6 +63,7 @@ class QuotaStore: ObservableObject {
         let timestamp: String
 
         var usedPct: Double { max(0, min(100, 100 - remainingPct)) }
+        var exhausted: Bool { remainingPct <= 0 }
     }
 
     struct ProviderInfo: Identifiable {
@@ -65,7 +78,7 @@ class QuotaStore: ObservableObject {
         var id: String { info.id }
     }
 
-    /// Time-class severity of a window, driving color and icon everywhere.
+    /// Time-class severity of an ACTIONABLE window, driving color and icon.
     enum QuotaSeverity {
         case critical, warning, normal
 
@@ -75,7 +88,6 @@ class QuotaStore: ObservableObject {
             return .normal
         }
 
-        /// Text color for numbers/labels — red/orange when tight, default label color otherwise.
         var textColor: Color {
             switch self {
             case .critical: return .red
@@ -84,8 +96,6 @@ class QuotaStore: ObservableObject {
             }
         }
 
-        /// Progress-bar fill — same scale, but "normal" uses the accent color so the
-        /// bar stays legible instead of rendering as a flat primary-color block.
         var barColor: Color {
             switch self {
             case .critical: return .red
@@ -106,6 +116,8 @@ class QuotaStore: ObservableObject {
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         self.dbPath = "\(home)/.quota-watch/data.db"
+        let stored = UserDefaults.standard.double(forKey: "alertThresholdPct")
+        self.alertThresholdPct = stored > 0 ? stored : 20
         refresh()
         startAutoRefresh()
     }
@@ -120,14 +132,17 @@ class QuotaStore: ObservableObject {
         errorMessage = nil
         let (items, pollAt) = result
 
-        // Build the popover's provider groups from the SAME items that power the
-        // menu-bar label — so the two can never disagree (an earlier bug read
-        // providers via a second connection that came back empty under WAL,
-        // leaving the popover blank while the label showed data).
+        // Popover groups and the menu-bar label come from the SAME items, so
+        // the two can never disagree (an earlier bug read providers via a
+        // second connection that came back empty under WAL).
         providerGroups = Self.buildGroups(from: items)
-        worstItem = items.min(by: { $0.remainingPct < $1.remainingPct })
+        exhaustedCount = items.filter(\.exhausted).count
+        worstActionable = items.filter { !$0.exhausted }.min(by: { $0.remainingPct < $1.remainingPct })
         lastUpdated = Date()
         lastPollAt = pollAt
+        // A failed history read keeps the previous history — never publish
+        // partial/cleared curves over a transient BUSY.
+        if let h = readHistory() { history = h }
 
         // A partial read (e.g. hitting the daemon's hourly WAL checkpoint)
         // must not seed the alert baseline — a later complete read would look
@@ -137,16 +152,13 @@ class QuotaStore: ObservableObject {
         }
     }
 
-    /// Edge-triggered, once-per-period low-quota notifications. Fires a single
-    /// actionable alert when a window *first* drops below the threshold, and
-    /// re-arms only after it recovers (resets). No repeated spam, and it warns
-    /// while the user can still switch providers or pace usage — an alert at
-    /// exhaustion is useless because it can't be reset, only waited out.
+    /// Edge-triggered, once-per-period low-quota notifications. Exhausted
+    /// windows (0% remaining) already fired when they crossed the threshold —
+    /// they stay in alertedWindowIds until the window resets, so an exhausted
+    /// weekly never re-notifies every refresh.
     private func notifyLowQuota(_ items: [QuotaItem]) {
         let lowNow = Set(items.filter { $0.remainingPct < alertThresholdPct }.map(\.id))
 
-        // First refresh: adopt the current low set as already-alerted so launch
-        // never fires a burst. Only crossings from here on notify.
         guard didSeedAlerts else {
             alertedWindowIds = lowNow
             didSeedAlerts = true
@@ -165,7 +177,6 @@ class QuotaStore: ObservableObject {
                 }
                 Notifier.send(title: "\(item.displayName) 配额快用完了", body: body)
             } else {
-                // Recovered above the threshold — re-arm for the next period.
                 alertedWindowIds.remove(item.id)
             }
         }
@@ -318,15 +329,77 @@ class QuotaStore: ObservableObject {
         // can't prove freshness — their timestamps stay old by design).
         var lastPoll: Date? = nil
         var pollStmt: OpaquePointer?
-        if sqlite3_prepare_v2(db, "SELECT MAX(last_poll_at) FROM provider_poll_state", -1, &pollStmt, nil) == SQLITE_OK {
-            if sqlite3_step(pollStmt) == SQLITE_ROW,
-               let text = sqlite3_column_text(pollStmt, 0) {
+        let pollPrepare = sqlite3_prepare_v2(db, "SELECT MAX(last_poll_at) FROM provider_poll_state", -1, &pollStmt, nil)
+        if pollPrepare == SQLITE_OK {
+            let rc = sqlite3_step(pollStmt)
+            if rc == SQLITE_ROW, let text = sqlite3_column_text(pollStmt, 0) {
                 lastPoll = Self.parseTimestamp(String(cString: text))
+            } else if rc != SQLITE_ROW && rc != SQLITE_DONE {
+                errorMessage = "Poll-state read failed: \(String(cString: sqlite3_errmsg(db)))"
+                sqlite3_finalize(pollStmt)
+                return nil
             }
             sqlite3_finalize(pollStmt)
+        } else {
+            // A brand-new DB may not have the table yet — tolerate ONLY that.
+            let msg = String(cString: sqlite3_errmsg(db))
+            if !msg.contains("no such table") {
+                errorMessage = "Poll-state read failed: \(msg)"
+                return nil
+            }
         }
 
         return (items, lastPoll)
+    }
+
+    /// 24h of (time, used-%) per window, oldest → newest. Timestamps are kept:
+    /// snapshots are change-only, so spacing points by INDEX would draw a
+    /// bursty climb as a gradual 24h slope. Returns nil on any read failure —
+    /// the caller keeps the previous history rather than flashing an empty one.
+    private func readHistory() -> [String: [(t: Date, usedPct: Double)]]? {
+        guard let db = openDatabase() else { return nil }
+        defer { sqlite3_close(db) }
+
+        // In-window changes PLUS the latest pre-cutoff snapshot per window —
+        // without that carry-in point, a window that changed once from 40→60%
+        // would render as a flat 60% line across the whole 24h.
+        let sql = """
+            SELECT provider_id, window_name, remaining_pct, timestamp
+            FROM quota_snapshots
+            WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-24 hours')
+            UNION ALL
+            SELECT provider_id, window_name, remaining_pct, timestamp
+            FROM quota_snapshots
+            WHERE id IN (
+                SELECT MAX(id) FROM quota_snapshots
+                WHERE timestamp < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-24 hours')
+                GROUP BY provider_id, window_name
+            )
+            ORDER BY timestamp
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+
+        var raw: [String: [(t: Date, usedPct: Double)]] = [:]
+        while true {
+            let rc = sqlite3_step(stmt)
+            if rc == SQLITE_DONE { break }
+            guard rc == SQLITE_ROW,
+                  let tsText = sqlite3_column_text(stmt, 3),
+                  let t = Self.parseTimestamp(String(cString: tsText))
+            else { return nil } // BUSY/IOERR mid-read → partial data, reject
+            let pid = String(cString: sqlite3_column_text(stmt, 0))
+            let name = String(cString: sqlite3_column_text(stmt, 1))
+            let used = max(0, min(100, 100 - sqlite3_column_double(stmt, 2)))
+            raw["\(pid)|\(name)", default: []].append((t: t, usedPct: used))
+        }
+        // Downsample: keep ≤48 evenly spaced points per window.
+        return raw.mapValues { points in
+            guard points.count > 48 else { return points }
+            let step = Double(points.count - 1) / 47
+            return (0...47).map { points[Int((Double($0) * step).rounded())] }
+        }
     }
 
     // MARK: - Formatting helpers

@@ -2,11 +2,12 @@ import AppKit
 import SwiftUI
 
 /// The popover content displayed when clicking the menu bar icon.
-/// Grouped by provider, one progress row per quota window.
+/// Grouped by provider; each window gets a ring gauge + 24h sparkline.
 struct MenuBarView: View {
     @ObservedObject var store: QuotaStore
     @StateObject private var pairing = PairingModel()
     @State private var showPairing = false
+    @State private var showSettings = false
 
     var body: some View {
         Group {
@@ -18,19 +19,19 @@ struct MenuBarView: View {
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     header
-                    Divider()
+                    Divider().opacity(0.5)
 
                     if let error = store.errorMessage {
                         errorBanner(error)
                     }
 
                     content
-                    Divider()
+                    Divider().opacity(0.5)
                     footer
                 }
             }
         }
-        .frame(width: 340)
+        .frame(width: 360)
         // Popover dismissed by clicking outside never calls the panel's close
         // handler; when the code's TTL runs out, drop back to the quota list so
         // the next click doesn't land on an expired pairing sheet.
@@ -44,36 +45,62 @@ struct MenuBarView: View {
 
     // MARK: - Header
 
+    /// Tri-state daemon status — a Boolean "stale?" forced DB errors onto the
+    /// green branch, showing a healthy dot while reads were failing.
+    private enum DaemonStatus {
+        case healthy, stale, unreadable
+
+        var dotColor: Color {
+            switch self {
+            case .healthy: return .green
+            case .stale: return .orange
+            case .unreadable: return .red
+            }
+        }
+
+        var label: String? {
+            switch self {
+            case .healthy: return nil
+            case .stale: return "daemon 未在轮询"
+            case .unreadable: return "读取失败"
+            }
+        }
+    }
+
+    private var daemonStatus: DaemonStatus {
+        if store.errorMessage != nil { return .unreadable }
+        guard !store.providerGroups.isEmpty else { return .healthy }
+        // 6min > Claude's 5min poll floor — slower than that means the daemon stopped.
+        guard let lastPoll = store.lastPollAt else { return .stale }
+        return Date().timeIntervalSince(lastPoll) > 360 ? .stale : .healthy
+    }
+
     private var header: some View {
-        HStack {
-            Text("quota-watch")
-                .font(.headline)
+        HStack(spacing: 8) {
+            Circle()
+                .fill(daemonStatus.dotColor)
+                .frame(width: 7, height: 7)
+            Text("quota·watch")
+                .font(.system(size: 13, weight: .semibold))
+            if let statusLabel = daemonStatus.label {
+                Text(statusLabel)
+                    .font(.caption)
+                    .foregroundStyle(daemonStatus.dotColor)
+            } else if let lastPoll = store.lastPollAt {
+                Text("轮询 \(lastPoll, style: .relative)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
-            if daemonIsStale {
-                // lastUpdated 记的是菜单栏上次读库时间，不是数据新鲜度 —
-                // daemon 死了它照样每秒更新。用 provider_poll_state 里最晚的
-                // 一次 poll 判活：最慢的合法轮询是 Claude 的 5 分钟地板，
-                // 6 分钟没动静才判 daemon 停（误报比漏报更伤信任）。
-                Label("daemon 未在轮询", systemImage: "antenna.radiowaves.left.and.right.slash")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            } else if let lastUpdated = store.lastUpdated {
-                Text(lastUpdated, style: .relative)
-                    .font(.caption)
+            if store.exhaustedCount > 0 {
+                Label("\(store.exhaustedCount) 已打满", systemImage: "nosign")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
-        .padding(.bottom, 8)
-    }
-
-    /// True when the DB has snapshots but the newest poll is >6min old (or the
-    /// daemon has never polled at all). 6min > Claude's 5min poll floor.
-    private var daemonIsStale: Bool {
-        guard !store.providerGroups.isEmpty, store.errorMessage == nil else { return false }
-        guard let lastPoll = store.lastPollAt else { return true }
-        return Date().timeIntervalSince(lastPoll) > 360
+        .padding(.bottom, 10)
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -97,35 +124,28 @@ struct MenuBarView: View {
         } else {
             // A ScrollView inside a MenuBarExtra(.window) popover collapses to
             // zero height: the window sizes itself to content, the ScrollView
-            // gets no height proposal, and renders blank (an earlier bug that
-            // looked like "no data" when the data was actually present). Give it
-            // an explicit height — exact fit for short lists, capped + scrollable
-            // for long ones.
+            // gets no height proposal, and renders blank. Give it an explicit
+            // height — exact fit for short lists, capped + scrollable for long.
             ScrollView {
                 VStack(spacing: 10) {
                     ForEach(store.providerGroups) { group in
-                        ProviderSection(group: group)
+                        ProviderSection(group: group, history: store.history)
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
-            .frame(height: min(estimatedContentHeight, 460))
+            .frame(height: min(estimatedContentHeight, 480))
         }
     }
 
-    /// Approximate rendered height of the provider list so the ScrollView gets a
-    /// concrete, non-zero frame. Small lists fit exactly; anything past the 460
-    /// cap scrolls. Per-section chrome ≈ title + card padding; per-row ≈ chip +
-    /// bar + footer line.
+    /// Approximate rendered height so the ScrollView gets a concrete, non-zero
+    /// frame. Per-section chrome ≈ title + padding; per-row ≈ ring row height.
     private var estimatedContentHeight: CGFloat {
         let sections = store.providerGroups
         let rowCount = sections.reduce(0) { $0 + max(1, $1.items.count) }
-        let sectionChrome = CGFloat(sections.count) * 58
-        let rowsHeight = CGFloat(rowCount) * 56
-        let interSectionSpacing = CGFloat(max(0, sections.count - 1)) * 10
-        let outerPadding: CGFloat = 24
-        return sectionChrome + rowsHeight + interSectionSpacing + outerPadding
+        return CGFloat(sections.count) * 46 + CGFloat(rowCount) * 64
+            + CGFloat(max(0, sections.count - 1)) * 10 + 24
     }
 
     private var emptyState: some View {
@@ -150,44 +170,87 @@ struct MenuBarView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack(spacing: 14) {
-            Button {
-                pairing.start()
-                showPairing = true
-            } label: {
-                Label("配对", systemImage: "qrcode")
+        VStack(spacing: 0) {
+            if showSettings {
+                HStack {
+                    Text("告警阈值")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Stepper(
+                        "剩余 < \(Int(store.alertThresholdPct))% 时提醒",
+                        value: $store.alertThresholdPct,
+                        in: 5...50,
+                        step: 5
+                    )
                     .font(.caption)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                Divider().opacity(0.5)
             }
-            .buttonStyle(.plain)
 
-            Button {
-                store.refresh()
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-                    .font(.caption)
+            HStack(spacing: 16) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { showSettings.toggle() }
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(FooterButtonStyle())
+                .help("设置")
+
+                Button {
+                    pairing.start()
+                    showPairing = true
+                } label: {
+                    Image(systemName: "qrcode")
+                }
+                .buttonStyle(FooterButtonStyle())
+                .help("配对设备")
+
+                Button {
+                    store.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(FooterButtonStyle())
+                .help("重新读取")
+
+                Button {
+                    NSWorkspace.shared.open(URL(string: "http://localhost:3000")!)
+                } label: {
+                    Image(systemName: "safari")
+                }
+                .buttonStyle(FooterButtonStyle())
+                .help("打开 Web 仪表盘")
+
+                Spacer()
+
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
+                }
+                .buttonStyle(FooterButtonStyle())
+                .help("退出")
             }
-            .buttonStyle(.plain)
-
-            Button {
-                NSWorkspace.shared.open(URL(string: "http://localhost:3000")!)
-            } label: {
-                Label("Web", systemImage: "safari")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Label("Quit", systemImage: "power")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+    }
+}
+
+/// Icon-only footer buttons: quiet until hovered.
+private struct FooterButtonStyle: ButtonStyle {
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12))
+            .foregroundStyle(hovering || configuration.isPressed ? .primary : .secondary)
+            .frame(width: 24, height: 20)
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
     }
 }
 
@@ -195,11 +258,18 @@ struct MenuBarView: View {
 
 private struct ProviderSection: View {
     let group: QuotaStore.ProviderGroup
+    let history: [String: [(t: Date, usedPct: Double)]]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(group.info.displayName)
-                .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(group.info.displayName)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(group.info.providerType)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
 
             if group.items.isEmpty {
                 Text("等待采集")
@@ -207,25 +277,25 @@ private struct ProviderSection: View {
                     .foregroundStyle(.tertiary)
                     .padding(.vertical, 2)
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     ForEach(group.items) { item in
-                        QuotaWindowRow(item: item)
+                        QuotaWindowRow(item: item, points: history[item.id] ?? [])
                     }
-                }
-            }
+                }            }
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.primary.opacity(0.055))
+                .fill(Color.primary.opacity(0.05))
         )
     }
 }
 
-// MARK: - Window row
+// MARK: - Window row: ring gauge + labels + sparkline
 
 private struct QuotaWindowRow: View {
     let item: QuotaStore.QuotaItem
+    let points: [(t: Date, usedPct: Double)]
 
     private var severity: QuotaStore.QuotaSeverity {
         .of(remainingPct: item.remainingPct)
@@ -241,8 +311,8 @@ private struct QuotaWindowRow: View {
         return item.windowName
     }
 
-    /// The "used / total unit" line is only meaningful for real quantities
-    /// (tokens, credits). For percent windows it just restates the big number.
+    /// The "used / total unit" line only matters for real quantities
+    /// (tokens, credits). For percent windows it restates the big number.
     private var showsRawCounts: Bool {
         item.unit.lowercased() != "percent" && item.total > 0
     }
@@ -250,30 +320,44 @@ private struct QuotaWindowRow: View {
     private var resetLabel: String? { QuotaStore.formatResetCountdown(item.resetAt) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 7) {
-                KindChip(kind: item.windowKind)
-                Text(cleanName)
-                    .font(.callout)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Text(QuotaStore.formatUsedPct(remainingPct: item.remainingPct))
-                    .font(.callout.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(severity.textColor)
-            }
+        HStack(spacing: 10) {
+            RingGauge(
+                fraction: item.usedPct / 100,
+                color: item.exhausted ? .gray : severity.barColor,
+                dimmed: item.exhausted
+            )
 
-            ProgressBar(fraction: CGFloat(item.usedPct / 100), color: severity.barColor)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    KindChip(kind: item.windowKind)
+                    Text(cleanName)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if item.exhausted {
+                        Text("已打满")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(QuotaStore.formatUsedPct(remainingPct: item.remainingPct))
+                            .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(severity.textColor)
+                    }
+                }
 
-            // Secondary line — only rendered when it carries real information:
-            // raw token/credit counts, and/or the reset countdown.
-            if showsRawCounts || resetLabel != nil {
-                HStack {
+                HStack(spacing: 6) {
+                    Sparkline(
+                        points: points,
+                        fallbackLevel: item.usedPct,
+                        color: item.exhausted ? .gray : severity.barColor
+                    )
+                    .frame(width: 64, height: 14)
+                    Spacer(minLength: 4)
                     if showsRawCounts {
                         Text("\(QuotaStore.formatValue(item.used)) / \(QuotaStore.formatValue(item.total)) \(item.unit)")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
-                    Spacer()
                     if let resetLabel {
                         Label(resetLabel, systemImage: "clock")
                             .font(.caption2)
@@ -281,6 +365,73 @@ private struct QuotaWindowRow: View {
                     }
                 }
             }
+        }
+        .opacity(item.exhausted ? 0.62 : 1)
+    }
+}
+
+// MARK: - Ring gauge
+
+private struct RingGauge: View {
+    let fraction: Double
+    let color: Color
+    var dimmed: Bool = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.gray.opacity(0.18), lineWidth: 3.5)
+            Circle()
+                .trim(from: 0, to: max(0, min(1, fraction)))
+                .stroke(color, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 30, height: 30)
+    }
+}
+
+// MARK: - Sparkline (24h used-%, x = real time)
+
+/// x is mapped by WALL TIME across the trailing 24h, not by sample index —
+/// snapshots are change-only, so index-spacing would draw a 10-minute burst as
+/// a slow day-long climb. A window with <2 changes in 24h renders a flat line
+/// at its current level: flat IS the truthful shape.
+private struct Sparkline: View {
+    let points: [(t: Date, usedPct: Double)]
+    let fallbackLevel: Double
+    let color: Color
+
+    private static let windowSeconds: TimeInterval = 24 * 3600
+
+    var body: some View {
+        Canvas { context, size in
+            guard size.width > 0, size.height > 0 else { return }
+            let now = Date()
+            let yFor = { (usedPct: Double) in
+                size.height * (1 - CGFloat(max(0, min(100, usedPct)) / 100))
+            }
+            let xFor = { (t: Date) in
+                size.width * CGFloat(max(0, min(1,
+                    (t.timeIntervalSince(now) + Self.windowSeconds) / Self.windowSeconds)))
+            }
+
+            var path = Path()
+            if points.count >= 2 {
+                // Extend to "now" so a stale flat tail reads as flat, not cut off.
+                for (i, p) in points.enumerated() {
+                    let pt = CGPoint(x: xFor(p.t), y: yFor(p.usedPct))
+                    if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+                }
+                if let last = points.last, last.t < now {
+                    path.addLine(to: CGPoint(x: size.width, y: yFor(last.usedPct)))
+                }
+            } else {
+                // 0 or 1 sample: flat line at the current level.
+                let y = yFor(fallbackLevel)
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.stroke(path, with: .color(color.opacity(0.55)), lineWidth: 1.2)
         }
     }
 }
@@ -292,31 +443,10 @@ private struct KindChip: View {
 
     var body: some View {
         Text(WindowKind.label(kind))
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: 8.5, weight: .bold))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(Color.gray.opacity(0.18)))
-    }
-}
-
-// MARK: - Progress bar
-
-private struct ProgressBar: View {
-    let fraction: CGFloat
-    let color: Color
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2.5)
-                    .fill(Color.gray.opacity(0.18))
-
-                RoundedRectangle(cornerRadius: 2.5)
-                    .fill(color)
-                    .frame(width: geo.size.width * max(0, min(1, fraction)))
-            }
-        }
-        .frame(height: 5)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1.5)
+            .background(Capsule().fill(Color.gray.opacity(0.16)))
     }
 }
