@@ -16,6 +16,7 @@ import {
   opencodeGoProvider,
   kimiProvider,
   antigravityProvider,
+  grokProvider,
 } from '@quota-watch/core';
 import type { ProviderAdapter, ProviderAuthMeta, ProviderConfig } from '@quota-watch/core';
 
@@ -28,6 +29,7 @@ const ADAPTER_BY_SLUG: Record<string, ProviderAdapter> = {
   'opencode-go': opencodeGoProvider,
   kimi: kimiProvider,
   antigravity: antigravityProvider,
+  grok: grokProvider,
 };
 
 interface ProviderMeta {

@@ -19,7 +19,7 @@ export interface ProviderAuthMeta {
   displayName: string;
   authKind: AuthKind;
   /** for oauth-file: which CLI credential file holds the tokens */
-  cliSource?: "claude-cli" | "codex-cli" | "antigravity-cli";
+  cliSource?: "claude-cli" | "codex-cli" | "antigravity-cli" | "grok-cli";
   /** for oauth-file: how the user creates that file if it's missing */
   cliLoginHint?: string;
   /** for api-key: the credential fields the adapter reads (1..n) */
@@ -89,6 +89,14 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     authKind: "oauth-file",
     cliSource: "antigravity-cli",
     cliLoginHint: "装一次社区 CLI 并登录：`npm i -g antigravity-usage && antigravity-usage login`",
+  },
+  {
+    // xAI OAuth; reuses the token store the grok CLI / cliproxyapi share.
+    slug: "grok",
+    displayName: "Grok",
+    authKind: "oauth-file",
+    cliSource: "grok-cli",
+    cliLoginHint: "登录一次官方 Grok CLI：`grok login`（或 cliproxyapi 的 xai 登录）",
   },
   // P2 — not yet wired
   { slug: "copilot", displayName: "GitHub Copilot", authKind: "oauth-file", available: false },

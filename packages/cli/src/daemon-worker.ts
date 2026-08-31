@@ -28,6 +28,7 @@ import {
   opencodeGoProvider,
   kimiProvider,
   antigravityProvider,
+  grokProvider,
   glmCnProvider,
   copilotProvider,
 } from '@quota-watch/core';
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
   registry.register(antigravityProvider);
   registry.register(glmCnProvider);
   registry.register(copilotProvider);
+  registry.register(grokProvider);
   log('INFO', `Registered providers: ${registry.list().join(', ')}`);
 
   // Set up alert notifiers

@@ -34,6 +34,8 @@ export {
   readCodexCliCredentials,
   readAntigravityCliCredentials,
   antigravityTokensPath,
+  readGrokCliCredentials,
+  grokTokensPath,
   type ResolvedTokens,
   type TokenSource,
 } from './auth/credential-source.js';

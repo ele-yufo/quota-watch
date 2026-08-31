@@ -13,7 +13,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-export type TokenSource = "claude-cli" | "codex-cli" | "antigravity-cli";
+export type TokenSource = "claude-cli" | "codex-cli" | "antigravity-cli" | "grok-cli";
 
 export interface ResolvedTokens {
   accessToken: string;
@@ -193,6 +193,90 @@ export function readAntigravityCliCredentials(): ResolvedTokens | null {
   });
 }
 
+// ── Grok (xAI OAuth token stores) ──────────────────────────────────────
+
+/**
+ * Newest xAI credential file among the two known stores:
+ *   ~/.cli-proxy-api/xai-<email>.json — cliproxyapi's store (refreshed by its
+ *     daemon; usually the freshest when cliproxyapi is in use)
+ *   ~/.grok/auth.json — the official Grok CLI's store (`grok login`)
+ * Newest mtime wins; a stale store (CLI not used in months) never beats the
+ * live one. Multi-account note: with several cliproxyapi xAI accounts the
+ * newest file wins — snapshots then follow whichever account refreshed last.
+ */
+export function grokTokensPath(): string | null {
+  const candidates: string[] = [join(homedir(), ".grok", "auth.json")];
+  try {
+    for (const entry of readdirSync(join(homedir(), ".cli-proxy-api"))) {
+      if (entry.startsWith("xai-") && entry.endsWith(".json")) {
+        candidates.push(join(homedir(), ".cli-proxy-api", entry));
+      }
+    }
+  } catch {
+    // no cliproxyapi store — the official CLI file may still exist
+  }
+  let best: { path: string; mtime: number } | null = null;
+  for (const candidate of candidates) {
+    try {
+      const mtime = statSync(candidate).mtimeMs;
+      if (!best || mtime > best.mtime) best = { path: candidate, mtime };
+    } catch {
+      // missing/unreadable — skip
+    }
+  }
+  return best?.path ?? null;
+}
+
+function parseGrokCliProxyStore(d: Record<string, unknown>): ResolvedTokens | null {
+  // ~/.cli-proxy-api/xai-<email>.json — `expired` is an ISO timestamp
+  const accessToken = d.access_token;
+  if (typeof accessToken !== "string" || !accessToken) return null;
+  const expiredIso = typeof d.expired === "string" ? Date.parse(d.expired) : NaN;
+  const extra: Record<string, string> = {};
+  if (typeof d.email === "string") extra.email = d.email;
+  if (typeof d.sub === "string") extra.userId = d.sub;
+  return {
+    accessToken,
+    refreshToken: typeof d.refresh_token === "string" ? d.refresh_token : undefined,
+    expiresAt: Number.isFinite(expiredIso) ? expiredIso : decodeJwtExp(accessToken),
+    source: "grok-cli",
+    extra,
+  };
+}
+
+function parseGrokOfficialStore(d: Record<string, unknown>): ResolvedTokens | null {
+  // ~/.grok/auth.json — keyed by "<oidc_issuer>::<client_id>"; the access
+  // token lives in the entry's `key` field (a JWT), expiry in `expires_at`.
+  for (const [k, v] of Object.entries(d)) {
+    if (!k.startsWith("https://auth.x.ai") || typeof v !== "object" || v === null) continue;
+    const entry = v as Record<string, unknown>;
+    const accessToken = entry.key;
+    if (typeof accessToken !== "string" || !accessToken) continue;
+    const expiresIso = typeof entry.expires_at === "string" ? Date.parse(entry.expires_at) : NaN;
+    const extra: Record<string, string> = {};
+    if (typeof entry.email === "string") extra.email = entry.email;
+    if (typeof entry.user_id === "string") extra.userId = entry.user_id;
+    return {
+      accessToken,
+      refreshToken: typeof entry.refresh_token === "string" ? entry.refresh_token : undefined,
+      expiresAt: Number.isFinite(expiresIso) ? expiresIso : decodeJwtExp(accessToken),
+      source: "grok-cli",
+      extra,
+    };
+  }
+  return null;
+}
+
+/** Read the newest xAI token store (either layout). null if unavailable. */
+export function readGrokCliCredentials(): ResolvedTokens | null {
+  const path = grokTokensPath();
+  if (!path) return null;
+  return readWithCache(path, (raw) => {
+    const d = JSON.parse(raw) as Record<string, unknown>;
+    return parseGrokCliProxyStore(d) ?? parseGrokOfficialStore(d);
+  });
+}
+
 /** Resolve latest tokens for a provider slug from its CLI file. null if unavailable. */
 export function resolveCliTokens(providerSlug: string): ResolvedTokens | null {
   switch (providerSlug) {
@@ -202,6 +286,8 @@ export function resolveCliTokens(providerSlug: string): ResolvedTokens | null {
       return readCodexCliCredentials();
     case "antigravity":
       return readAntigravityCliCredentials();
+    case "grok":
+      return readGrokCliCredentials();
     default:
       return null;
   }

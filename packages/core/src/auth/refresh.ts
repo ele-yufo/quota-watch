@@ -17,7 +17,7 @@
 import { homedir } from "node:os";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { antigravityTokensPath } from "./credential-source.js";
+import { antigravityTokensPath, grokTokensPath } from "./credential-source.js";
 
 /** Refresh HTTP timeout — a hung token endpoint must not wedge the poll loop. */
 const REFRESH_TIMEOUT_MS = 15_000;
@@ -112,6 +112,47 @@ const SPECS: RefreshSpec[] = [
       raw.expiresAt = tokens.expiresAt;
     },
   },
+  {
+    // xAI OAuth (grok-cli public client — the client_id is the access token's
+    // JWT `aud`). Two on-disk layouts share the same account: cliproxyapi's
+    // flat xai-*.json and the official CLI's keyed ~/.grok/auth.json; both
+    // rotate the refresh token on every refresh (verified live 2026-08), and
+    // the CAS write-back in refreshAndPersist keeps a concurrent refresher's
+    // newer token from being clobbered.
+    slug: "grok",
+    tokenUrl: "https://auth.x.ai/oauth2/token",
+    clientId: "b1a00492-073a-47ea-816f-4c329264a828",
+    bodyKind: "form",
+    expiresDefaultSec: 3600,
+    filePath: () => grokTokensPath(),
+    readRefreshToken: (raw) => {
+      if (typeof raw.refresh_token === "string") return raw.refresh_token;
+      for (const [k, v] of Object.entries(raw)) {
+        if (!k.startsWith("https://auth.x.ai") || typeof v !== "object" || v === null) continue;
+        const rt = (v as Record<string, unknown>).refresh_token;
+        if (typeof rt === "string") return rt;
+      }
+      return undefined;
+    },
+    writeTokens: (raw, tokens) => {
+      if ("access_token" in raw) {
+        // cliproxyapi layout — `expired` is an ISO timestamp, not a boolean
+        raw.access_token = tokens.accessToken;
+        raw.refresh_token = tokens.refreshToken;
+        raw.expired = new Date(tokens.expiresAt).toISOString();
+        raw.last_refresh = new Date().toISOString();
+        return;
+      }
+      for (const [k, v] of Object.entries(raw)) {
+        if (!k.startsWith("https://auth.x.ai") || typeof v !== "object" || v === null) continue;
+        const entry = v as Record<string, unknown>;
+        entry.key = tokens.accessToken;
+        entry.refresh_token = tokens.refreshToken;
+        entry.expires_at = new Date(tokens.expiresAt).toISOString();
+        return;
+      }
+    },
+  },
 ];
 
 async function refreshWithSpec(
@@ -187,15 +228,26 @@ export async function refreshAndPersist(providerSlug: string): Promise<Refreshed
   const refreshed = await refreshWithSpec(spec, rt);
   if (refreshed) {
     try {
-      spec.writeTokens(raw, refreshed);
-      // Atomic write: a crash mid-writeFileSync would leave the OFFICIAL CLI's
-      // credential file half-written — breaking the user's `claude`/`codex`
-      // login, not just ours. tmp+rename is crash-safe. (Lost-update against a
-      // concurrent CLI refresh remains possible; both token sets are valid, so
-      // the damage is bounded to a slightly-older expiry.)
-      const tmp = `${filePath}.qw-tmp`;
-      writeFileSync(tmp, JSON.stringify(raw, null, 2), { mode: 0o600 });
-      renameSync(tmp, filePath);
+      // Compare-and-swap against the shared credential file: another process
+      // (the official CLI, cliproxyapi) may have refreshed while our exchange
+      // was in flight, and for rotating providers (codex, grok) overwriting
+      // with our stale read would destroy their newer refresh_token. If the
+      // on-disk refresh_token no longer matches the one we exchanged, their
+      // state is newer — keep their file, use our tokens in-memory only.
+      const now = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+      if (spec.readRefreshToken(now) === rt) {
+        spec.writeTokens(now, refreshed);
+        // Atomic write: a crash mid-writeFileSync would leave the OFFICIAL CLI's
+        // credential file half-written — breaking the user's `claude`/`codex`
+        // login, not just ours. tmp+rename is crash-safe; the pid in the tmp
+        // name keeps two quota-watch processes from colliding. Residual race:
+        // a non-cooperating writer (the official CLI) can still replace the
+        // file between our compare above and this rename — a ms-scale window
+        // with no userspace fix short of a lock the other side honors.
+        const tmp = `${filePath}.qw-tmp-${process.pid}`;
+        writeFileSync(tmp, JSON.stringify(now, null, 2), { mode: 0o600 });
+        renameSync(tmp, filePath);
+      }
     } catch {
       // best effort — refresh succeeded in-memory; file write failure (concurrent
       // CLI write truncating the file, EACCES) must not crash the poll loop.

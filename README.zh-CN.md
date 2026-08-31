@@ -28,7 +28,7 @@
 
 ## 亮点
 
-- 🛰 **6 家原生集成** —— Claude Code、Codex(即你 ChatGPT 套餐里的 Codex 额度)、GLM、OpenCode Go、Kimi、Antigravity。直连各家 HTTP 接口,不 shell-out 到社区工具。GitHub Copilot 在路线图上。
+- 🛰 **7 家原生集成** —— Claude Code、Codex(即你 ChatGPT 套餐里的 Codex 额度)、GLM、OpenCode Go、Kimi、Antigravity、Grok。直连各家 HTTP 接口,不 shell-out 到社区工具。GitHub Copilot 在路线图上。
 - ⚡ **近实时** —— 用量变动时约 10 秒刷新,空闲时自动降频。GLM 一超配额你几秒就看到,不是等半小时。
 - 🧭 **统一模型** —— 每个配额窗口带「类型」(session · day · week · month),`5h`/`7d`/`1mo` 在每个端都按同一顺序呈现。
 - 🎨 **五套网页仪表盘,五种布局** —— 不是换配色。每个主题是独立的排版、可视化与动效(见下)。
@@ -120,6 +120,7 @@ claude mcp add quota-watch --transport http https://<公网IP>:3737/mcp \
 | OpenCode Go | 5h session、7d weekly、1mo monthly | opencode.ai `auth` cookie + workspace id |
 | Kimi | 5h session、7d weekly | Kimi Code API key |
 | Antigravity | 5h + weekly Gemini 池、5h + weekly Claude+GPT 池 | 优先读本地运行中 IDE 的 language server(Connect RPC,免凭证),走 `RetrieveUserQuotaSummary`——与 IDE 自己的配额界面同源;IDE 未开时回退 `antigravity-usage` CLI 的 token 存储(只有 5h) |
+| Grok | 月度 credits | 复用 `grok login` / cliproxyapi 共享的 xAI OAuth 存储(`~/.cli-proxy-api/xai-*.json`),自动刷新 |
 
 *路线图:* **GitHub Copilot** 适配器(月度请求额度)已实现,但凭据接入尚未接进 app。
 
