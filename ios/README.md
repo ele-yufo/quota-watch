@@ -34,17 +34,27 @@ node packages/cli/dist/index.js daemon start --lan
 node packages/cli/dist/index.js connect
 ```
 
-`connect` 会打印类似：
+`connect` 会打印类似（**不再打印 Token**，改由 6 位配对码换领）：
 
 ```
 Host  192.168.1.23    Port  3737
-Token 3f9a…（32 位十六进制）
+Code  在 Mac 菜单栏点「配对」取 6 位码
 ```
 
 > 已全局安装 `@quota-watch/cli` 的话，直接用 `quota-watch daemon start --lan` /
 > `quota-watch connect`。
 
 ## iOS 端：生成工程并运行
+
+**一键真机安装**（推荐）：插上 iPhone，跑
+
+```bash
+ios/run-on-device.sh
+```
+
+它会从 `ios/Local.xcconfig` 读 Team ID 构建并安装（前置：Xcode 已登录你的
+Apple 账号）。签名有效期约 1 年，过期后 app 提示「应用不可用」时重跑即可。
+手动方式：
 
 ```bash
 cd ios
@@ -142,10 +152,13 @@ xcodebuild -project ios/QuotaWatch.xcodeproj -scheme QuotaWatch \
 
 ## 网络安全说明
 
-daemon 服务明文 HTTP，用户可能经 LAN IP / 隧道（Tailscale 的 100.64/10 / WireGuard）/
-公网访问——这些不都在 `NSAllowsLocalNetworking` 的私网范围内，因此 Info.plist 用
-`NSAllowsArbitraryLoads=true` 放开明文。app 自身在非私网地址时警告并推荐隧道。
-二期计划改 TLS 或签名配对通道，届时可收紧该例外。
+daemon 服务全链路 **HTTPS（自签 CA + 指纹 pin）**：配对时从二维码/配对响应拿到
+daemon CA 的 SHA-256 指纹，之后每个请求都通过自定义 `URLSession` delegate 把
+服务端证书链 pin 到该 CA——不装 CA 到系统、不信任任何第三方证书。证书轮换后
+指纹不匹配会明确报「证书已更换，请重新配对」。未配对/手动回环兜底时才走
+`http://127.0.0.1`（Info.plist 的 `NSAllowsArbitraryLoads` 仅为兜底路径保留，
+正式连接始终由 pin 接管）。Token 存 Keychain，指纹存 UserDefaults 并镜像到
+App Group 供 widget 共用。
 
 ## 目录结构
 

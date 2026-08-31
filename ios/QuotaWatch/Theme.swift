@@ -1,122 +1,84 @@
 import SwiftUI
 
-/// Design system — a dark "instrument panel" aesthetic. Brand fonts (Fraunces
-/// display + JetBrains Mono numerals, matching the web app), a deep near-black
-/// canvas with a subtle vertical gradient, and elevated card surfaces.
-enum Theme {
-    // ── Canvas & surfaces ───────────────────────────────────────────────
-    static let bgTop = Color(red: 0.06, green: 0.07, blue: 0.10)
-    static let bgBottom = Color(red: 0.02, green: 0.03, blue: 0.05)
-    static let surface = Color(red: 0.10, green: 0.11, blue: 0.14)
-    static let surfaceHi = Color(red: 0.13, green: 0.145, blue: 0.18)
-    static let hairline = Color.white.opacity(0.07)
+// ─────────────────────────────────────────────────────────────
+// quota-watch · iOS 设计系统 v2（Anthropic 风）
+//
+// 真源：Open Design 设计文档（quota-watch v2 · Anthropic 风）。
+// 色彩为 OKLCH token，构建期转 sRGB 后以 Asset Catalog
+// （QW*.colorset）维护亮 / 暗双值；代码只引用语义角色。
+// 排版三角色：Fraunces（品牌与关键百分比）/ SF Pro（界面）/
+// JetBrains Mono（数值与连接标识）。
+// ─────────────────────────────────────────────────────────────
 
-    // ── Text ────────────────────────────────────────────────────────────
-    static let ink = Color(white: 0.97)
-    static let ink2 = Color(white: 0.62)
-    static let ink3 = Color(white: 0.42)
+// MARK: - 语义颜色（唯一真源：Assets.xcassets/QWColors）
 
-    /// The app-wide background: a deep dial — vertical gradient + a faint
-    /// guilloché texture + a vignette that focuses the eye. Not a flat fill.
-    static var canvas: some View {
-        ZStack {
-            LinearGradient(colors: [bgTop, bgBottom], startPoint: .top, endPoint: .bottom)
-            GuillocheTexture().opacity(0.35)
-            RadialGradient(colors: [.clear, Color.black.opacity(0.22)],
-                           center: .init(x: 0.5, y: 0.42), startRadius: 90, endRadius: 520)
-        }
-        .ignoresSafeArea()
-    }
+enum QWColor {
+    // 画布与表面
+    static let background = Color("QW.Background")   // 亮: 未漂白纸 · 暗: 暖炭
+    static let surface    = Color("QW.Surface")
+    static let surface2   = Color("QW.Surface2")
 
-    /// Brushed-metal hairline for card edges — catches "light" top-left.
-    static var metalStroke: LinearGradient {
-        LinearGradient(colors: [Color.white.opacity(0.18), Color.white.opacity(0.04), Color.white.opacity(0.10)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
+    // 文字
+    static let foreground = Color("QW.Foreground")
+    static let muted      = Color("QW.Muted")
+    static let subtle     = Color("QW.Subtle")
+
+    // 结构
+    static let border     = Color("QW.Border")
+
+    // 焦点与语义
+    static let accent     = Color("QW.Accent")       // 低饱和琥珀
+    static let accentInk  = Color("QW.AccentInk")
+    static let success    = Color("QW.Success")
+    static let warning    = Color("QW.Warning")
+    static let warningInk = Color("QW.WarningInk")
+    static let danger     = Color("QW.Danger")
+
+    // Provider 品牌色 —— 只用于图标与状态点，不承担配额语义
+    static let claude      = Color("QW.Claude")
+    static let codex       = Color("QW.Codex")
+    static let glm         = Color("QW.GLM")
+    static let kimi        = Color("QW.Kimi")
+    static let opencode    = Color("QW.OpenCode")
+    static let antigravity = Color("QW.Antigravity")
 }
 
-/// A subtle guilloché — concentric hairline rings + fine radial spokes, like an
-/// engine-turned watch dial. Very low opacity; pure atmosphere.
-struct GuillocheTexture: View {
-    var body: some View {
-        Canvas { ctx, size in
-            let c = CGPoint(x: size.width * 0.5, y: size.height * 0.36)
-            let maxR = max(size.width, size.height)
-            let ink = GraphicsContext.Shading.color(.white.opacity(0.025))
-            var r: CGFloat = 26
-            while r < maxR {
-                let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
-                ctx.stroke(Path(ellipseIn: rect), with: ink, lineWidth: 0.6)
-                r += 26
-            }
-            let spokes = 90
-            for i in 0..<spokes {
-                let a = (Double(i) / Double(spokes)) * 2 * .pi
-                var p = Path()
-                p.move(to: c)
-                p.addLine(to: CGPoint(x: c.x + cos(a) * maxR, y: c.y + sin(a) * maxR))
-                ctx.stroke(p, with: .color(.white.opacity(0.012)), lineWidth: 0.5)
-            }
-        }
+// MARK: - 空间 / 圆角 / 动效
+
+enum QWTokens {
+    enum Space {
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 16
+        static let xl: CGFloat = 24
+        static let xxl: CGFloat = 32
     }
+    enum Radius {
+        static let control: CGFloat = 10   // 触控控件
+        static let sheet: CGFloat = 16     // 系统容器
+        static let widget: CGFloat = 24    // 小组件
+    }
+    enum Motion {
+        /// 数字滚动：420ms 轻弹性，仅变化位参与
+        static let number = Animation.snappy(duration: 0.42, extraBounce: 0.08)
+        /// 列表更新 / 层级出现：220ms 淡入
+        static let reveal = Animation.easeOut(duration: 0.22)
+    }
+    static let hairline: CGFloat = 1
 }
 
-/// Card background: deep surface + a top sheen + a brushed-metal hairline edge.
-struct InstrumentCard<S: Shape>: View {
-    let shape: S
-    var body: some View {
-        shape
-            .fill(Theme.surface)
-            .overlay(
-                shape.fill(
-                    LinearGradient(colors: [Color.white.opacity(0.05), .clear],
-                                   startPoint: .top, endPoint: .center)
-                )
-            )
-            .overlay(shape.stroke(Theme.metalStroke, lineWidth: 1))
-    }
-}
-
-// ── Status → colour (tuned for the dark canvas) ─────────────────────────
-
-enum UsageLevel {
-    case ok, warn, low
-
-    init(remainingPct: Double) {
-        if remainingPct < 10 { self = .low }
-        else if remainingPct < 30 { self = .warn }
-        else { self = .ok }
-    }
-
-    var color: Color {
-        switch self {
-        case .ok: return Color(red: 0.36, green: 0.76, blue: 0.56)   // refined emerald
-        case .warn: return Color(red: 0.93, green: 0.71, blue: 0.35)  // refined amber
-        case .low: return Color(red: 0.92, green: 0.44, blue: 0.42)   // refined coral
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .ok: return "充足"
-        case .warn: return "偏紧"
-        case .low: return "告急"
-        }
-    }
-}
-
-// ── Brand typography ────────────────────────────────────────────────────
+// MARK: - 排版角色（Font extension —— leading-dot 语法需要成员属于 Font）
 
 extension Font {
-    /// Fraunces Black — the wordmark / big display headline.
-    static func qwDisplay(_ size: CGFloat) -> Font { .custom("Fraunces-Black", size: size) }
-    static func qwDisplayItalic(_ size: CGFloat) -> Font { .custom("Fraunces-BlackItalic", size: size) }
-
-    /// JetBrains Mono — every numeric readout + technical label (the instrument voice).
-    static func qwNum(_ size: CGFloat, _ weight: QWMono = .bold) -> Font {
+    /// Fraunces 550 —— 品牌字标、页面标题、关键百分比
+    static func qwDisplay(_ size: CGFloat) -> Font {
+        .custom("Fraunces", size: size).weight(.medium)
+    }
+    /// JetBrains Mono —— 数值、倒计时、连接标识（等宽稳定节奏）
+    static func qwMono(_ size: CGFloat, _ weight: QWMono = .medium) -> Font {
         .custom(weight.psName, size: size)
     }
-    static func qwLabel(_ size: CGFloat) -> Font { .custom("JetBrainsMono-Medium", size: size) }
 }
 
 enum QWMono {
@@ -128,5 +90,46 @@ enum QWMono {
         case .bold: return "JetBrainsMono-Bold"
         case .extraBold: return "JetBrainsMono-ExtraBold"
         }
+    }
+}
+
+// MARK: - 配额语义（表盘 / 告警 / 状态点共用）
+
+enum UsageLevel {
+    case ok, warn, danger
+
+    /// 设计语义：≥25% accent · 10–24% warning · <10% danger
+    init(remainingPct: Double) {
+        if remainingPct < 10 { self = .danger }
+        else if remainingPct < 25 { self = .warn }
+        else { self = .ok }
+    }
+
+    var color: Color {
+        switch self {
+        case .ok: return QWColor.accent
+        case .warn: return QWColor.warning
+        case .danger: return QWColor.danger
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .ok: return "充足"
+        case .warn: return "偏紧"
+        case .danger: return "告急"
+        }
+    }
+}
+
+// MARK: - 常用布局修饰
+
+/// 主界面统一横向内边距（24–32pt 版面感，列表用 24）
+let QWPagePadding: CGFloat = QWTokens.Space.xl
+
+extension View {
+    /// 离线 / 失效内容的统一降级：整块 62% 透明度
+    func qwStale(_ stale: Bool) -> some View {
+        opacity(stale ? 0.62 : 1)
     }
 }

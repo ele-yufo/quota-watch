@@ -29,4 +29,11 @@ enum Formatting {
         if sec < 60 { return "\(sec)s" }
         return "\(sec / 60)m"
     }
+
+    /// "session (5h)" → "session" — strips a parenthetical suffix from raw
+    /// window names. Single source of truth for detail + widget rows.
+    static func cleanWindowName(_ name: String) -> String {
+        guard let r = name.range(of: #"\s*\([^)]*\)\s*$"#, options: .regularExpression) else { return name }
+        return String(name[..<r.lowerBound])
+    }
 }

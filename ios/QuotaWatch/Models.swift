@@ -33,6 +33,18 @@ enum WindowKind: String, Codable, CaseIterable {
         case .unknown: return "—"
         }
     }
+
+    /// UI-facing Chinese type name (list rows, alert copy).
+    var displayName: String {
+        switch self {
+        case .session: return "会话"
+        case .day: return "日"
+        case .week: return "周"
+        case .month: return "月"
+        case .balance: return "余额"
+        case .unknown: return "窗口"
+        }
+    }
 }
 
 /// One quota window — matches a row of `GET /quota` → provider.windows[].

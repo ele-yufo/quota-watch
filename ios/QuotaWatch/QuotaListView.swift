@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Main screen — a dark instrument panel. Custom Fraunces wordmark header, a
-/// large hero dial for the most-urgent window, and per-provider cards showing a
-/// row of glowing ring gauges (one dial per window).
+/// 主界面 —— 开放版面替代卡片墙。
+/// 信息语法：窗口名称先于百分比，百分比先于用量，重置倒计时以等宽数字贴近数据。
+/// 顶部：页面标题 + 全局视角分段；最紧张窗口置顶（大表盘）；下方 hairline
+/// 分隔的 provider 列表行。异常用颜色 + 文字 + 结构多通道表达。
 struct QuotaListView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
@@ -12,22 +13,20 @@ struct QuotaListView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Theme.canvas
-                Group {
-                    if !model.isConfigured {
-                        WelcomeView()
-                    } else if model.providers.isEmpty && model.lastUpdated == nil && !model.initialLoadFailed {
-                        SkeletonList()
-                    } else if model.providers.isEmpty && model.loadError != nil {
-                        ErrorStateView(message: model.loadError ?? "加载失败") {
-                            Task { await model.refresh() }
-                        }
-                    } else {
-                        scrollContent
+            Group {
+                if !model.isConfigured {
+                    WelcomeView()
+                } else if model.providers.isEmpty && model.lastUpdated == nil && !model.initialLoadFailed {
+                    LoadingStateView()
+                } else if model.providers.isEmpty {
+                    ErrorStateView(error: model.lastAPIError) {
+                        Task { await model.refresh() }
                     }
+                } else {
+                    quotaContent
                 }
             }
+            .background(QWColor.background)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(item: $detail) { ProviderDetailView(provider: $0) }
         }
@@ -40,45 +39,40 @@ struct QuotaListView: View {
         .sensoryFeedback(trigger: model.criticalCount) { old, new in new > old ? .warning : nil }
     }
 
-    private var scrollContent: some View {
+    // ── 版面 ────────────────────────────────────────────────────────────
+
+    private var quotaContent: some View {
         ScrollView {
-            LazyVStack(spacing: 14) {
-                MastheadView(
-                    live: model.isPolling,
-                    updatedAt: model.lastUpdated,
-                    channelCount: model.providers.count,
-                    mode: model.displayMode,
-                    onToggleMode: { withAnimation(.snappy) { model.toggleDisplayMode() } },
-                    onRefresh: { Task { await model.pollNow() } }
-                )
-                .padding(.top, 8)
+            VStack(alignment: .leading, spacing: 0) {
+                titleRow
+                statusRow
+                Hairline()
 
                 if model.showAlert {
-                    AlertBanner(
+                    QuotaAlert(
                         count: model.criticalCount,
                         urgent: model.criticalWindows.min { $0.window.remainingPct < $1.window.remainingPct },
                         mode: model.displayMode,
-                        onDismiss: { withAnimation(.snappy) { model.dismissAlert() } }
+                        onDismiss: { withAnimation(QWTokens.Motion.reveal) { model.dismissAlert() } }
                     )
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                if let error = model.loadError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.qwLabel(12))
-                        .foregroundStyle(UsageLevel.warn.color)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(13)
-                        .background(UsageLevel.warn.color.opacity(0.10),
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                if model.loadError != nil {
+                    StaleBanner(updatedAt: model.lastUpdated)
                 }
 
-                ForEach(Array(model.providers.enumerated()), id: \.element.id) { idx, provider in
-                    ProviderDialCard(provider: provider, index: idx, mode: model.displayMode) { detail = provider }
+                if let hero = model.mostUrgent {
+                    HeroWindow(provider: hero.provider, window: hero.window,
+                               mode: model.displayMode) { detail = hero.provider }
+                        .padding(.top, QWTokens.Space.xl)
+                        .qwStale(model.loadError != nil)
                 }
+
+                providerList
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 30)
+            .padding(.horizontal, QWPagePadding)
+            .padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
         .refreshable {
@@ -86,243 +80,250 @@ struct QuotaListView: View {
             pullTick += 1
         }
     }
-}
 
-// ── Masthead (custom header with wordmark) ──────────────────────────────
+    private var titleRow: some View {
+        HStack(alignment: .center, spacing: QWTokens.Space.md) {
+            Text("配额")
+                .font(.qwDisplay(34))
+                .foregroundStyle(QWColor.foreground)
+            Spacer(minLength: 0)
+            ModeSegment(mode: model.displayMode) {
+                withAnimation(QWTokens.Motion.reveal) { model.toggleDisplayMode() }
+            }
+        }
+        .padding(.top, QWTokens.Space.lg)
+    }
 
-private struct MastheadView: View {
-    let live: Bool
-    let updatedAt: Date?
-    let channelCount: Int
-    let mode: QuotaDisplayMode
-    let onToggleMode: () -> Void
-    let onRefresh: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 0) {
-                    Text("quota").font(.qwDisplay(30)).foregroundStyle(Theme.ink)
-                    Text("·").font(.qwDisplay(30)).foregroundStyle(UsageLevel.low.color)
-                    Text("watch").font(.qwDisplayItalic(30)).foregroundStyle(Theme.ink)
-                }
-                HStack(spacing: 8) {
-                    HStack(spacing: 6) {
-                        Circle().fill(live ? UsageLevel.ok.color : Theme.ink3)
-                            .frame(width: 6, height: 6)
-                        Text(live ? "采集中" : "实时")
-                            .font(.qwLabel(10.5)).foregroundStyle(Theme.ink2)
-                        if let updatedAt {
-                            Text("· \(Formatting.ago(updatedAt)) 前")
-                                .font(.qwLabel(10.5)).foregroundStyle(Theme.ink3)
-                        }
-                    }
-                    // Global used/remaining toggle — flips the number + bars app-wide
-                    // (and the widgets, via the shared store).
-                    Button(action: onToggleMode) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.left.arrow.right")
-                                .font(.system(size: 9, weight: .bold))
-                            Text(mode.label).font(.qwLabel(10.5))
-                        }
-                        .foregroundStyle(Theme.ink2)
-                        .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(Theme.surface, in: Capsule())
-                        .overlay(Capsule().strokeBorder(Theme.hairline))
-                        .contentTransition(.numericText())
-                    }
-                    .buttonStyle(.plain)
+    private var statusRow: some View {
+        HStack(spacing: QWTokens.Space.sm) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(model.isPolling ? QWColor.success : QWColor.muted)
+                    .frame(width: 6, height: 6)
+                Text(model.isPolling ? "采集中" : "实时")
+                    .font(.system(size: 13))
+                    .foregroundStyle(QWColor.muted)
+                if let updatedAt = model.lastUpdated {
+                    Text("· \(Formatting.ago(updatedAt)) 前")
+                        .font(.qwMono(11))
+                        .foregroundStyle(QWColor.subtle)
                 }
             }
             Spacer()
-            HStack(spacing: 10) {
-                CircleIconButton(system: "arrow.clockwise", action: onRefresh)
-                NavigationLink(destination: SettingsView()) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Theme.ink2)
-                        .frame(width: 38, height: 38)
-                        .background(Theme.surface, in: Circle())
-                        .overlay(Circle().strokeBorder(Theme.hairline))
-                }
+            Button { Task { await model.pollNow() } } label: {
+                IconCircle(system: "arrow.clockwise")
+            }
+            .buttonStyle(.plain)
+            NavigationLink(destination: SettingsView()) {
+                IconCircle(system: "gearshape")
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, QWTokens.Space.sm)
+    }
+
+    private var providerList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(model.providers.enumerated()), id: \.element.id) { idx, provider in
+                if idx > 0 { Hairline() }
+                ProviderRow(provider: provider, mode: model.displayMode,
+                            stale: model.loadError != nil) { detail = provider }
             }
         }
+        .qwStale(model.loadError != nil)
     }
 }
 
-// ── Dismissible alert banner (replaces the permanent alarm hero) ─────────
+// ── 标题行：全局视角分段（剩余 / 已用） ─────────────────────────────────
 
-private struct AlertBanner: View {
+private struct ModeSegment: View {
+    let mode: QuotaDisplayMode
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment(.used)
+            segment(.remaining)
+        }
+        .padding(2)
+        .background(QWColor.surface2, in: RoundedRectangle(cornerRadius: QWTokens.Radius.control, style: .continuous))
+    }
+
+    private func segment(_ m: QuotaDisplayMode) -> some View {
+        let selected = m == mode
+        return Button {
+            if !selected { onToggle() }
+        } label: {
+            Text(m.label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(selected ? QWColor.accentInk : QWColor.muted)
+                .frame(width: 68, height: 40)
+                .background(selected ? QWColor.accent : .clear,
+                            in: RoundedRectangle(cornerRadius: QWTokens.Radius.control - 4, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// ── 告警：插入信息流的一段有上下边界的短消息，不是圆角卡片 ───────────────
+
+private struct QuotaAlert: View {
     let count: Int
     let urgent: (provider: QuotaProvider, window: QuotaWindow)?
     var mode: QuotaDisplayMode = .used
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(UsageLevel.low.color)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(count) 个窗口告急")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                if let urgent {
-                    let reset = Formatting.resetCountdown(urgent.window.resetDate).map { " · \($0)后重置" } ?? ""
-                    Text("\(urgent.provider.displayName) · \(urgent.window.windowName) · \(mode.label)\(Int(urgent.window.displayPct(mode).rounded()))%\(reset)")
-                        .font(.qwLabel(11)).foregroundStyle(Theme.ink2)
-                        .lineLimit(1)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(headline)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(QWColor.danger)
+                Spacer(minLength: 4)
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(QWColor.subtle)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("消除告警")
+            }
+            if let urgent, let reset = Formatting.resetCountdown(urgent.window.resetDate) {
+                HStack(spacing: 5) {
+                    Text(reset)
+                        .font(.qwMono(12, .bold))
+                        .foregroundStyle(QWColor.muted)
+                    Text("后重置 · 已置顶")
+                        .font(.system(size: 13))
+                        .foregroundStyle(QWColor.subtle)
                 }
             }
-            Spacer(minLength: 4)
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Theme.ink2)
-                    .frame(width: 30, height: 30)
-                    .background(Color.white.opacity(0.06), in: Circle())
-            }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(UsageLevel.low.color.opacity(0.12))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(UsageLevel.low.color.opacity(0.35)))
-        )
-        .sensoryFeedback(.impact(weight: .light), trigger: false)
+        .padding(.vertical, QWTokens.Space.lg)
+        .overlay(alignment: .bottom) { Hairline() }
+        .contentShape(Rectangle())
+    }
+
+    private var headline: String {
+        guard let urgent else { return "\(count) 个窗口额度告急" }
+        let pct = Int(urgent.window.displayPct(mode).rounded())
+        if count > 1 {
+            return "\(count) 个窗口告急 · 最紧张 \(urgent.provider.displayName) \(urgent.window.windowKind.displayName) 只剩 \(pct)%"
+        }
+        return "\(urgent.provider.displayName) \(urgent.window.windowKind.displayName)额度只剩 \(pct)%"
     }
 }
 
-private struct CircleIconButton: View {
-    let system: String
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: system)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Theme.ink2)
-                .frame(width: 38, height: 38)
-                .background(Theme.surface, in: Circle())
-                .overlay(Circle().strokeBorder(Theme.hairline))
-        }
-    }
-}
+// ── 最紧张窗口（hero）：大表盘 + 编辑级数字 ──────────────────────────────
 
-// ── Provider card (row of dials) ────────────────────────────────────────
-
-private struct ProviderDialCard: View {
+private struct HeroWindow: View {
     let provider: QuotaProvider
-    var index: Int = 0
+    let window: QuotaWindow
     var mode: QuotaDisplayMode = .used
+    let onTap: () -> Void
+
+    private var level: UsageLevel { UsageLevel(remainingPct: window.remainingPct) }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(alignment: .center, spacing: QWTokens.Space.xl) {
+                RingGauge(pct: window.displayPct(mode), level: level, diameter: 116)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("\(provider.displayName) · 最紧张窗口")
+                        .font(.system(size: 13))
+                        .foregroundStyle(QWColor.subtle)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(Int(window.displayPct(mode).rounded()))")
+                            .font(.qwDisplay(44))
+                            .foregroundStyle(level.color)
+                            .contentTransition(.numericText(value: window.displayPct(mode)))
+                            .animation(QWTokens.Motion.number, value: window.displayPct(mode))
+                        Text(mode.label)
+                            .font(.qwDisplay(20))
+                            .foregroundStyle(QWColor.muted)
+                    }
+                    if let reset = Formatting.resetCountdown(window.resetDate) {
+                        HStack(spacing: 5) {
+                            Text(window.windowKind.rawValue.uppercased())
+                                .font(.qwMono(11, .bold))
+                                .foregroundStyle(QWColor.muted)
+                            Text("· \(reset) 后重置")
+                                .font(.qwMono(12))
+                                .foregroundStyle(QWColor.subtle)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, QWTokens.Space.xl)
+    }
+}
+
+// ── Provider 列表行：64pt，图标 + 最需要关注的窗口 + 重置时间 + 小表盘 ───
+
+private struct ProviderRow: View {
+    let provider: QuotaProvider
+    var mode: QuotaDisplayMode = .used
+    var stale = false
     let onTap: () -> Void
 
     private var style: ProviderStyle { ProviderStyle.of(provider.providerType) }
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 11) {
-                    ProviderBadge(style: style, size: 36)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(provider.displayName)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Theme.ink)
-                        Text(provider.providerType)
-                            .font(.qwLabel(10)).foregroundStyle(Theme.ink3)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.ink3)
-                }
-
-                if provider.windows.isEmpty {
-                    Text("等待采集…")
-                        .font(.qwLabel(12)).foregroundStyle(Theme.ink2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(provider.sortedWindows) { window in
-                            DialColumn(window: window, mode: mode)
+            HStack(spacing: QWTokens.Space.md) {
+                ProviderBadge(style: style, size: 34)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(provider.displayName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(QWColor.foreground)
+                    if let w = provider.primary {
+                        HStack(spacing: 5) {
+                            Text(w.windowKind.displayName)
+                                .font(.system(size: 13))
+                                .foregroundStyle(QWColor.muted)
+                            if let reset = Formatting.resetCountdown(w.resetDate) {
+                                Text("· \(reset) 后重置")
+                                    .font(.qwMono(11))
+                                    .foregroundStyle(QWColor.subtle)
+                            }
                         }
-                        if provider.sortedWindows.count < 3 {
-                            Spacer(minLength: 0)
-                        }
+                    } else {
+                        Text("等待采集…")
+                            .font(.system(size: 13))
+                            .foregroundStyle(QWColor.subtle)
                     }
                 }
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity)
-            .background(InstrumentCard(shape: RoundedRectangle(cornerRadius: 22, style: .continuous)))
-        }
-        .buttonStyle(DialCardButtonStyle())
-    }
-}
-
-private struct DialColumn: View {
-    let window: QuotaWindow
-    var mode: QuotaDisplayMode = .used
-
-    var body: some View {
-        let level = UsageLevel(remainingPct: window.remainingPct)
-        VStack(spacing: 7) {
-            RingGauge(pct: window.displayPct(mode), level: level,
-                      caption: window.windowKind.label, diameter: 74, lineWidth: 8)
-            if let reset = Formatting.resetCountdown(window.resetDate) {
-                Text("↻ \(reset)")
-                    .font(.qwLabel(10)).foregroundStyle(Theme.ink3)
-            } else {
-                Text(level.label)
-                    .font(.qwLabel(10)).foregroundStyle(level.color)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-private struct DialCardButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.snappy(duration: 0.2), value: configuration.isPressed)
-    }
-}
-
-// ── Loading / error ─────────────────────────────────────────────────────
-
-private struct SkeletonList: View {
-    @State private var shimmer = false
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 16) {
-                ForEach(0..<4, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Theme.surface)
-                        .frame(height: 150)
+                Spacer(minLength: 4)
+                if let w = provider.primary {
+                    RingGauge(pct: w.displayPct(mode),
+                              level: UsageLevel(remainingPct: w.remainingPct),
+                              diameter: 40, lineWidth: 5)
                 }
             }
-            .padding(.horizontal, 16).padding(.top, 60)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
         }
-        .scrollIndicators(.hidden)
-        .opacity(shimmer ? 0.5 : 1)
-        .animation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true), value: shimmer)
-        .onAppear { shimmer = true }
-        .allowsHitTesting(false)
+        .buttonStyle(.plain)
+        .qwStale(stale)
     }
 }
 
-private struct ErrorStateView: View {
-    let message: String
-    let onRetry: () -> Void
+// ── 工具按钮 ────────────────────────────────────────────────────────────
+
+struct IconCircle: View {
+    let system: String
     var body: some View {
-        ContentUnavailableView {
-            Label("无法加载", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("重试", action: onRetry).buttonStyle(.borderedProminent).tint(UsageLevel.ok.color)
-        }
+        Image(systemName: system)
+            .font(.system(size: 16, weight: .medium))
+            .foregroundStyle(QWColor.muted)
+            .frame(width: 44, height: 44)
+            .background(QWColor.surface, in: Circle())
+            .overlay(Circle().strokeBorder(QWColor.border))
     }
 }

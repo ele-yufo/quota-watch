@@ -2,7 +2,9 @@ import SwiftUI
 
 /// Per-provider visual identity — the real brand logo (bundled from lobe-icons /
 /// simple-icons as template SVGs) tinted with the brand's accent colour, keyed
-/// by `providerType`. Colours are tuned to read on the dark canvas.
+/// by `providerType`. Brand colours live in the Asset Catalog as QW.* with
+/// light/dark variants, and only ever appear on the icon + status dot — never
+/// as quota semantics.
 struct ProviderStyle {
     let accent: Color
     /// asset name of the brand glyph in Assets.xcassets (template-rendered)
@@ -11,29 +13,30 @@ struct ProviderStyle {
     static func of(_ providerType: String) -> ProviderStyle {
         switch providerType {
         case "claude":
-            return .init(accent: Color(red: 0.85, green: 0.53, blue: 0.35), icon: "brand-claude")
+            return .init(accent: QWColor.claude, icon: "brand-claude")
         case "codex":
-            return .init(accent: Color(white: 0.94), icon: "brand-codex")
+            return .init(accent: QWColor.codex, icon: "brand-codex")
         case "glm-cn":
-            return .init(accent: Color(red: 0.40, green: 0.64, blue: 1.0), icon: "brand-glm")
+            return .init(accent: QWColor.glm, icon: "brand-glm")
         case "opencode-go":
-            return .init(accent: Color(red: 0.80, green: 0.82, blue: 0.86), icon: "brand-opencode")
+            return .init(accent: QWColor.opencode, icon: "brand-opencode")
         case "kimi":
-            return .init(accent: Color(red: 0.36, green: 0.36, blue: 0.40), icon: "brand-kimi")
+            return .init(accent: QWColor.kimi, icon: "brand-kimi")
         case "antigravity":
-            return .init(accent: Color(red: 0.42, green: 0.66, blue: 0.98), icon: "brand-antigravity")
+            return .init(accent: QWColor.antigravity, icon: "brand-antigravity")
         case "copilot":
-            return .init(accent: Color(white: 0.90), icon: "brand-copilot")
+            return .init(accent: QWColor.muted, icon: "brand-copilot")
         case "gemini-cli", "gemini":
-            return .init(accent: Color(red: 0.45, green: 0.68, blue: 1.0), icon: "brand-gemini")
+            return .init(accent: QWColor.glm, icon: "brand-gemini")
         default:
-            return .init(accent: Color(red: 0.55, green: 0.68, blue: 0.85), icon: "brand-claude")
+            // 未知 provider —— 通用图标，不冒充任何品牌
+            return .init(accent: QWColor.muted, icon: "brand-generic")
         }
     }
 }
 
 /// The provider's brand glyph in a tinted rounded tile — one consistent
-/// treatment used by the list card and the detail header.
+/// treatment used by the list row and the detail header.
 struct ProviderBadge: View {
     let style: ProviderStyle
     var size: CGFloat = 34
@@ -41,7 +44,7 @@ struct ProviderBadge: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                .fill(style.accent.opacity(0.16))
+                .fill(style.accent.opacity(0.14))
             Image(style.icon)
                 .renderingMode(.template)
                 .resizable()

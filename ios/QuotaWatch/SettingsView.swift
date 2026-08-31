@@ -1,66 +1,44 @@
 import SwiftUI
 
-/// Connection settings — QR pairing (primary), manual entry, a live connection
-/// test, and genuine step-by-step help + troubleshooting so a first-time user
-/// can actually get connected.
+/// 设置 —— 连接信息以可核对的等宽文本呈现，token 默认遮罩；
+/// Demo 模式与真实连接清楚分离，避免误把示例值当成生产数据。
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
 
     @State private var testState: TestState = .idle
-    @State private var showScanner = false
+    @State private var showPairing = false
     @State private var scannedTick = 0
-    @State private var manualCode = ""
-    @State private var claiming = false
-    @State private var paired = false
 
     private enum TestState: Equatable {
         case idle, testing
-        case success(providerCount: Int, uptimeSec: Int)
+        case success(providerCount: Int)
         case failure(String)
     }
 
     var body: some View {
-        @Bindable var model = model
-
-        Form {
-            if model.demoMode {
-                Section {
-                    Label {
-                        Text("当前显示的是示例数据。配对你的 Mac 后即可看到真实配额。")
-                            .font(.footnote)
-                    } icon: {
-                        Image(systemName: "wand.and.stars").foregroundStyle(UsageLevel.warn.color)
-                    }
-                    Button("退出示例模式", role: .destructive) {
-                        model.exitDemo()
-                    }
-                } header: {
-                    Text("示例模式")
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                connectionSection
+                SectionHeader("配对另一台 Mac")
+                pairingButton
+                SectionHeader("监控")
+                monitoringSection
+                SectionHeader("显示")
+                displaySection
+                SectionHeader("Demo 模式")
+                demoSection
+                SectionHeader("关于")
+                aboutSection
+                helpSection
             }
-            connectionStatusSection
-            pairingSection(model: $model)
-            manualSection(model: $model)
-            if model.isConfigured && model.hostReachability == .publicNetwork {
-                publicWarningSection
-            }
-            helpSection
-            troubleshootingSection
-            aboutSection
+            .padding(.horizontal, QWPagePadding)
+            .padding(.bottom, 40)
         }
-        .navigationTitle("连接设置")
+        .scrollIndicators(.hidden)
+        .background(QWColor.background)
+        .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showScanner) {
-            QRScannerView { payload in
-                handleScanned(payload)
-            }
-        }
-        .overlay(alignment: .top) {
-            if paired { pairedToast }
-        }
-        .animation(.snappy, value: paired)
-        .sensoryFeedback(.success, trigger: scannedTick)
+        .sheet(isPresented: $showPairing) { PairingSheetView() }
         .sensoryFeedback(trigger: testState) { _, new in
             switch new {
             case .success: return .success
@@ -68,39 +46,98 @@ struct SettingsView: View {
             default: return nil
             }
         }
+        .sensoryFeedback(.success, trigger: scannedTick)
     }
 
-    // ── Connection status ───────────────────────────────────────────────
+    // ── 连接 ────────────────────────────────────────────────────────────
 
-    private var connectionStatusSection: some View {
-        Section {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle().fill(statusColor.opacity(0.18)).frame(width: 42, height: 42)
-                    Image(systemName: statusSymbol).foregroundStyle(statusColor)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(statusTitle).font(.system(size: 16, weight: .semibold))
-                    Text(statusDetail).font(.caption).foregroundStyle(.secondary)
-                }
+    private var connectionSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("连接")
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                Text(statusTitle)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(QWColor.foreground)
                 Spacer()
-                if testState == .testing { ProgressView() }
+                if testState == .testing {
+                    ProgressView().tint(QWColor.accent)
+                } else if case .success = testState {
+                    Text("最近同步 · 刚刚")
+                        .font(.system(size: 12))
+                        .foregroundStyle(QWColor.subtle)
+                } else if case .failure = testState {
+                    Text("测试失败")
+                        .font(.system(size: 12))
+                        .foregroundStyle(QWColor.danger)
+                }
             }
+            .padding(.vertical, 10)
+            Hairline()
+
+            SettingRow(label: "Host", value: model.host.isEmpty ? "未设置" : model.host, mono: true)
+            Hairline()
+            SettingRow(label: "Port", value: "\(model.port)", mono: true)
+            Hairline()
+            SettingRow(label: "Token", value: maskedToken, mono: true)
+            Hairline()
+
+            Button {
+                Task { await runTest() }
+            } label: {
+                HStack {
+                    Text("测试连接")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(QWColor.foreground)
+                    Spacer()
+                    if case let .success(count) = testState {
+                        Text("\(count) 渠道 · 在线")
+                            .font(.qwMono(11))
+                            .foregroundStyle(QWColor.success)
+                    } else if case let .failure(msg) = testState {
+                        Text(msg)
+                            .font(.qwMono(11))
+                            .foregroundStyle(QWColor.danger)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.host.trimmingCharacters(in: .whitespaces).isEmpty || testState == .testing)
+
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 12) {
+                    StepRow(n: 1, text: "在 Mac 上启动采集 daemon（状态栏 app 或命令行）。", code: "quota-watch daemon start --lan")
+                    StepRow(n: 2, text: "点 Mac 菜单栏的 quota-watch →「配对」，弹出二维码 + 6 位配对码。", code: nil)
+                    StepRow(n: 3, text: "点上面的「扫描或输入配对码」完成连接。", code: nil)
+                    StepRow(n: 4, text: "确保手机和 Mac 在同一个 Wi-Fi（或已配好隧道）。", code: nil)
+                    TipRow("连不上？确认 daemon 用 --lan 启动（普通 start 只绑回环）；临时关掉 Mac 上的代理 / VPN。")
+                }
+                .padding(.vertical, 4)
+            } label: {
+                Text("如何连接 / 常见排查")
+                    .font(.system(size: 14))
+                    .foregroundStyle(QWColor.muted)
+            }
+            .padding(.vertical, 6)
         }
+    }
+
+    private var maskedToken: String {
+        guard model.token.count > 8 else { return model.token.isEmpty ? "未设置" : "••••" }
+        return "\(model.token.prefix(3))••••••••\(model.token.suffix(4))"
     }
 
     private var statusColor: Color {
         switch testState {
-        case .success: return UsageLevel.ok.color
-        case .failure: return UsageLevel.low.color
-        default: return model.isConfigured ? UsageLevel.warn.color : .secondary
-        }
-    }
-    private var statusSymbol: String {
-        switch testState {
-        case .success: return "checkmark.circle.fill"
-        case .failure: return "xmark.circle.fill"
-        default: return model.isConfigured ? "wifi" : "wifi.slash"
+        case .success: return QWColor.success
+        case .failure: return QWColor.danger
+        default: return model.isConfigured ? QWColor.warning : QWColor.subtle
         }
     }
     private var statusTitle: String {
@@ -110,158 +147,116 @@ struct SettingsView: View {
         default: return model.isConfigured ? "已配置，未测试" : "未连接"
         }
     }
-    private var statusDetail: String {
-        switch testState {
-        case let .success(count, uptime): return "\(count) 个渠道 · daemon 运行 \(uptime)s"
-        case let .failure(msg): return msg
-        default: return model.isConfigured ? "\(model.host):\(model.port)" : "扫码或手动填写 Mac 的地址"
-        }
-    }
 
-    // ── Pairing (primary) ───────────────────────────────────────────────
+    // ── 配对 ────────────────────────────────────────────────────────────
 
-    private func pairingSection(model: Bindable<AppModel>) -> some View {
-        Section {
-            Button {
-                showScanner = true
-            } label: {
-                Label("扫码配对", systemImage: "qrcode.viewfinder")
-                    .font(.body.weight(.semibold))
+    private var pairingButton: some View {
+        Button {
+            showPairing = true
+        } label: {
+            HStack {
+                Text("扫描或输入配对码")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(QWColor.accent)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(QWColor.subtle)
             }
-            Button {
-                Task { await runTest() }
-            } label: {
-                HStack {
-                    Label("测试连接", systemImage: "bolt.horizontal")
-                    Spacer()
-                    testInlineResult
-                }
-            }
-            .disabled(model.wrappedValue.host.trimmingCharacters(in: .whitespaces).isEmpty || testState == .testing)
-        } header: {
-            Text("配对")
-        } footer: {
-            Text("在 Mac 菜单栏点 quota·watch →「配对」弹出二维码，用「扫码配对」一扫即连——Token 全程隐身，不用管。")
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, QWTokens.Space.sm)
+    }
+
+    // ── 监控 ────────────────────────────────────────────────────────────
+
+    private var monitoringSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingRow(label: "自动刷新", value: "近实时 · 每 10 秒")
+            Hairline()
+            SettingRow(label: "低配额提醒", value: "剩余低于 10% 置顶")
         }
     }
 
-    @ViewBuilder
-    private var testInlineResult: some View {
-        switch testState {
-        case let .success(count, _):
-            Label("\(count) 渠道", systemImage: "checkmark").font(.caption).foregroundStyle(.green).labelStyle(.titleAndIcon)
-        case .failure:
-            Image(systemName: "xmark").font(.caption).foregroundStyle(.red)
-        default: EmptyView()
-        }
-    }
+    // ── 显示 ────────────────────────────────────────────────────────────
 
-    // ── Manual entry ────────────────────────────────────────────────────
-
-    private func manualSection(model: Bindable<AppModel>) -> some View {
-        Group {
-            Section {
-                LabeledContent("主机") {
-                    TextField("192.168.1.10", text: model.host)
-                        .multilineTextAlignment(.trailing)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .keyboardType(.URL)
-                }
-                LabeledContent("端口") {
-                    TextField("3737", value: model.port, format: .number.grouping(.never))
-                        .multilineTextAlignment(.trailing).keyboardType(.numberPad)
-                }
-                LabeledContent("配对码") {
-                    TextField("6 位数字", text: $manualCode)
-                        .multilineTextAlignment(.trailing).keyboardType(.numberPad)
-                        .textContentType(.oneTimeCode)
-                }
-                Button {
-                    claimManualCode()
-                } label: {
-                    HStack {
-                        Label("用配对码连接", systemImage: "key.horizontal")
-                        Spacer()
-                        if claiming { ProgressView() }
+    private var displaySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingRow(label: "外观", value: "跟随系统")
+            Hairline()
+            HStack {
+                Text("默认视角")
+                    .font(.system(size: 15))
+                    .foregroundStyle(QWColor.foreground)
+                Spacer()
+                Picker("默认视角", selection: Binding(
+                    get: { model.displayMode },
+                    set: { model.displayMode = $0 }
+                )) {
+                    ForEach(QuotaDisplayMode.allCases, id: \.self) { m in
+                        Text(m.label).tag(m)
                     }
                 }
-                .disabled(model.wrappedValue.host.trimmingCharacters(in: .whitespaces).isEmpty
-                          || manualCode.count < 6 || claiming)
-            } header: {
-                Text("手动配对")
-            } footer: {
-                Text("在 Mac 菜单栏点「配对」，把地址和 6 位配对码填在这里——和扫码等效。")
+                .pickerStyle(.segmented)
+                .frame(width: 130)
             }
+            .padding(.vertical, 8)
+        }
+    }
 
-            Section {
-                DisclosureGroup("高级：直接填 Token") {
-                    LabeledContent("Token") {
-                        SecureField("可选", text: model.token)
-                            .multilineTextAlignment(.trailing)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+    // ── Demo 模式 ───────────────────────────────────────────────────────
+
+    private var demoSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text(model.demoMode ? "Demo 模式 · 未连接采集器" : "使用示例数据，不连接采集器")
+                    .font(.system(size: 15))
+                    .foregroundStyle(model.demoMode ? QWColor.warning : QWColor.muted)
+                Spacer()
+                Button(model.demoMode ? "退出示例模式" : "进入示例模式") {
+                    withAnimation(QWTokens.Motion.reveal) {
+                        if model.demoMode { model.exitDemo() } else { model.enterDemo() }
                     }
                 }
-            } footer: {
-                Text("一般用不到。仅当你已有 API Token（如 `quota-watch connect` 打印的）时手动填。")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(model.demoMode ? QWColor.danger : QWColor.accent)
+                .buttonStyle(.plain)
             }
+            .padding(.vertical, 12)
         }
     }
 
-    private var publicWarningSection: some View {
-        Section {
-            Label {
-                Text("这看起来是公网地址。明文 HTTP 会让 Token 在传输中暴露——建议用 Tailscale / Cloudflare Tunnel 等隧道，而不是直接暴露端口。")
-                    .font(.footnote)
-            } icon: {
-                Image(systemName: "exclamationmark.shield").foregroundStyle(.orange)
-            }
-        }
-    }
-
-    // ── Help ────────────────────────────────────────────────────────────
-
-    private var helpSection: some View {
-        Section("如何连接？") {
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 12) {
-                    StepRow(n: 1, text: "在 Mac 上启动采集 daemon（状态栏 app 或命令行）。", code: "quota-watch daemon start --lan")
-                    StepRow(n: 2, text: "点 Mac 菜单栏的 quota·watch →「配对」，弹出二维码 + 6 位配对码。", code: nil)
-                    StepRow(n: 3, text: "点上面的「扫码配对」扫它，或在「手动配对」填地址 + 配对码。", code: nil)
-                    StepRow(n: 4, text: "确保手机和 Mac 在同一个 Wi-Fi（或已配好隧道）。", code: nil)
-                }
-                .padding(.vertical, 4)
-            } label: {
-                Label("4 步搞定", systemImage: "list.number")
-            }
-        }
-    }
-
-    private var troubleshootingSection: some View {
-        Section("连不上？") {
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 10) {
-                    TipRow("手机和 Mac 是否连的是同一个 Wi-Fi？")
-                    TipRow("Mac 上是否用的 `daemon start --lan`（普通 `start` 只绑回环，手机连不上）？")
-                    TipRow("Mac 上开了代理 / VPN（Clash、Surge 等）？它们常拦截局域网请求——临时关掉，或改用隧道。")
-                    TipRow("公网访问：用 Tailscale / Cloudflare Tunnel 打通，别把端口裸露到公网。")
-                }
-                .padding(.vertical, 4)
-            } label: {
-                Label("常见排查", systemImage: "wrench.and.screwdriver")
-            }
-        }
-    }
+    // ── 关于 ────────────────────────────────────────────────────────────
 
     private var aboutSection: some View {
-        Section("关于") {
-            LabeledContent("版本", value: appVersion)
-            Label {
+        VStack(alignment: .leading, spacing: 0) {
+            SettingRow(label: "版本", value: appVersion)
+            Hairline()
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(QWColor.success)
+                    .padding(.top, 12)
                 Text("配额数据只在你的局域网 / 隧道内传输，不经任何云端。")
-                    .font(.footnote).foregroundStyle(.secondary)
-            } icon: {
-                Image(systemName: "lock.fill").foregroundStyle(UsageLevel.ok.color)
+                    .font(.system(size: 13))
+                    .foregroundStyle(QWColor.subtle)
+                    .lineSpacing(3)
+                    .padding(.vertical, 10)
             }
         }
+    }
+
+    private var helpSection: some View {
+        DisclosureGroup {
+            TipRow("Token 可以直接填在设置里（仅当你知道自己在做什么）；一般用配对码即可。")
+        } label: {
+            Text("高级：直接填 Token")
+                .font(.system(size: 13))
+                .foregroundStyle(QWColor.muted)
+        }
+        .padding(.vertical, 6)
     }
 
     private var appVersion: String {
@@ -270,85 +265,55 @@ struct SettingsView: View {
         return "\(v) (\(b))"
     }
 
-    // ── Actions ─────────────────────────────────────────────────────────
+    // ── 动作 ────────────────────────────────────────────────────────────
 
     private func runTest() async {
         testState = .testing
         switch await model.testConnection() {
         case let .success(health):
-            testState = .success(providerCount: health.providers.count, uptimeSec: health.uptimeSec)
+            testState = .success(providerCount: health.providers.count)
             await model.refresh()
         case let .failure(error):
             testState = .failure(error.errorDescription ?? "失败")
         }
     }
+}
 
-    /// A scanned QR: claim its short-lived code (menu-bar flow) or, for a legacy
-    /// token QR, store the token directly. Then test the connection.
-    private func handleScanned(_ payload: PairingPayload) {
-        Task {
-            if let code = payload.code {
-                testState = .testing
-                if let err = await model.applyPairingCode(host: payload.host, port: payload.port, code: code) {
-                    testState = .failure(err)
-                } else {
-                    scannedTick += 1
-                    await finishPairing()
-                }
-            } else {
-                model.applyPairing(payload)
-                scannedTick += 1
-                testState = .idle
-                await finishPairing()
-            }
-        }
-    }
+// ── 分区与行组件 ────────────────────────────────────────────────────────
 
-    /// Manual pairing-code entry → claim → test.
-    private func claimManualCode() {
-        Task {
-            claiming = true
-            defer { claiming = false }
-            testState = .testing
-            if let err = await model.applyPairingCode(host: model.host, port: model.port, code: manualCode) {
-                testState = .failure(err)
-            } else {
-                manualCode = ""
-                scannedTick += 1
-                await finishPairing()
-            }
-        }
-    }
+private struct SectionHeader: View {
+    let title: String
+    init(_ title: String) { self.title = title }
 
-    /// After a successful pair: test the connection, show a clear success toast,
-    /// then pop back to the home screen — where the freshly-loaded quota is the
-    /// real confirmation (no more staying stranded on the settings page).
-    private func finishPairing() async {
-        await runTest()
-        if case .success = testState {
-            paired = true
-            try? await Task.sleep(for: .seconds(1.2))
-            dismiss()
-        }
-    }
-
-    private var pairedToast: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(UsageLevel.ok.color)
-            Text("配对成功 · 已连接")
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(.horizontal, 18).padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(UsageLevel.ok.color.opacity(0.4)))
-        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
-        .padding(.top, 10)
-        .transition(.move(edge: .top).combined(with: .opacity))
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(QWColor.subtle)
+            .padding(.top, QWTokens.Space.xl)
+            .padding(.bottom, QWTokens.Space.sm)
     }
 }
 
-// ── Help sub-views ──────────────────────────────────────────────────────
+private struct SettingRow: View {
+    let label: String
+    let value: String
+    var mono = false
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 15))
+                .foregroundStyle(QWColor.foreground)
+            Spacer()
+            Text(value)
+                .font(mono ? .qwMono(12) : .system(size: 15))
+                .foregroundStyle(mono ? QWColor.muted : QWColor.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.vertical, 10)
+    }
+}
 
 private struct StepRow: View {
     let n: Int
@@ -358,19 +323,19 @@ private struct StepRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(n)")
-                .font(.caption.monospaced().bold())
-                .foregroundStyle(UsageLevel.ok.color)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(QWColor.accent)
                 .frame(width: 20, height: 20)
-                .background(UsageLevel.ok.color.opacity(0.15), in: Circle())
+                .background(QWColor.accent.opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 5) {
-                Text(text).font(.footnote)
+                Text(text).font(.system(size: 13)).foregroundStyle(QWColor.foreground)
                 if let code {
                     Text(code)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
+                        .font(.qwMono(11))
+                        .foregroundStyle(QWColor.muted)
                         .padding(.horizontal, 8).padding(.vertical, 5)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+                        .background(QWColor.surface2, in: RoundedRectangle(cornerRadius: 7))
                         .textSelection(.enabled)
                 }
             }
@@ -383,8 +348,11 @@ private struct TipRow: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "circle.fill").font(.system(size: 5)).foregroundStyle(.secondary).padding(.top, 6)
-            Text(text).font(.footnote)
+            Image(systemName: "circle.fill")
+                .font(.system(size: 5))
+                .foregroundStyle(QWColor.subtle)
+                .padding(.top, 6)
+            Text(text).font(.system(size: 13)).foregroundStyle(QWColor.subtle)
         }
     }
 }

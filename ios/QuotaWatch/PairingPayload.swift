@@ -1,8 +1,10 @@
 import Foundation
 
-/// A parsed `qw://pair?host=..&port=..&[code=..|token=..]` pairing URL.
+/// A parsed `qw://pair?host=..&port=..&[code=..|token=..][&fp=..]` pairing URL.
 /// The menu-bar QR carries a short-lived `code` (exchanged for the token via
-/// /pair/claim so the token is never shown); the legacy CLI QR carries `token`.
+/// /pair/claim so the token is never shown) plus the daemon CA fingerprint
+/// (`fp`) so the app can pin TLS before the first request; the legacy CLI QR
+/// carries `token`.
 struct PairingPayload: Equatable {
     let host: String
     let port: Int
@@ -10,6 +12,9 @@ struct PairingPayload: Equatable {
     /// Short-lived pairing code — present on the menu-bar QR, exchanged for the
     /// token. When set, the app should claim it rather than store it directly.
     let code: String?
+    /// SHA-256 hex fingerprint of the daemon CA — pins TLS from the very first
+    /// request (no trusting-on-first-use).
+    let caFingerprint: String?
 
     /// Parse a scanned string. Accepts the `qw://pair` scheme; returns nil for
     /// anything else so the scanner keeps looking.
@@ -34,6 +39,8 @@ struct PairingPayload: Equatable {
         self.token = (token?.isEmpty ?? true) ? nil : token
         let code = value("code")
         self.code = (code?.isEmpty ?? true) ? nil : code
+        let fp = value("fp")
+        self.caFingerprint = (fp?.isEmpty ?? true) ? nil : fp
     }
 }
 

@@ -15,6 +15,7 @@ enum SharedStore {
         static let host = "qw.host"
         static let port = "qw.port"
         static let token = "qw.token"
+        static let caFingerprint = "qw.caFingerprint" // daemon CA pin (hex SHA-256)
         static let snapshot = "qw.snapshot"       // JSON-encoded [QuotaProvider]
         static let snapshotAt = "qw.snapshotAt"   // epoch seconds of last good fetch
         static let widgetPage = "qw.widgetPage"   // paging index for the widgets
@@ -46,7 +47,7 @@ enum SharedStore {
 
     /// Mirror the app's connection settings into the shared container so the
     /// widget can reach the same daemon. Call whenever host/port/token change.
-    static func saveConnection(host: String, port: Int, token: String) {
+    static func saveConnection(host: String, port: Int, token: String, caFingerprint: String? = nil) {
         guard let d = defaults else { return }
         d.set(host, forKey: K.host)
         d.set(port, forKey: K.port)
@@ -56,6 +57,7 @@ enum SharedStore {
         // team) lets the widget authenticate without a separate keychain-sharing
         // entitlement. The app's own copy still lives in the Keychain.
         d.set(token, forKey: K.token)
+        d.set(caFingerprint, forKey: K.caFingerprint)
     }
 
     static var host: String { defaults?.string(forKey: K.host) ?? "" }
@@ -64,6 +66,7 @@ enum SharedStore {
         return p == 0 ? 3737 : p
     }
     static var token: String { defaults?.string(forKey: K.token) ?? "" }
+    static var caFingerprint: String? { defaults?.string(forKey: K.caFingerprint) }
 
     // ── Snapshot cache (app → widget fallback) ──────────────────────────
 

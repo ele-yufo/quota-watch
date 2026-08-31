@@ -1,89 +1,117 @@
 import SwiftUI
 
-/// Per-provider detail — a big dial per window with its full readout
-/// (used/remaining, absolute reset time). Dark instrument aesthetic.
+/// 单个订阅详情 —— 每个窗口是独立的信息段（hairline 分隔），不是独立卡片。
+/// 阅读顺序统一：表盘 → 窗口名 → 用量 → 重置，避免把不同时间尺度混成"综合分"。
 struct ProviderDetailView: View {
     @Environment(AppModel.self) private var model
     let provider: QuotaProvider
     private var style: ProviderStyle { ProviderStyle.of(provider.providerType) }
 
     var body: some View {
-        ZStack {
-            Theme.canvas
-            ScrollView {
-                VStack(spacing: 16) {
-                    header
-                    if provider.windows.isEmpty {
-                        ContentUnavailableView("等待采集", systemImage: "hourglass",
-                                               description: Text("daemon 还没为该渠道采集到数据"))
-                            .padding(.top, 40)
-                    } else {
-                        ForEach(provider.sortedWindows) { window in
-                            WindowDetailCard(window: window, mode: model.displayMode)
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                if provider.windows.isEmpty {
+                    ContentUnavailableView("等待采集", systemImage: "hourglass",
+                                           description: Text("daemon 还没为该渠道采集到数据"))
+                        .padding(.top, 40)
+                } else {
+                    ForEach(Array(provider.sortedWindows.enumerated()), id: \.element.id) { idx, window in
+                        if idx > 0 { Hairline().padding(.vertical, QWTokens.Space.sm) }
+                        WindowSegment(window: window, mode: model.displayMode)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 30)
             }
-            .scrollIndicators(.hidden)
+            .padding(.horizontal, QWPagePadding)
+            .padding(.bottom, 30)
         }
+        .scrollIndicators(.hidden)
+        .background(QWColor.background)
         .navigationTitle(provider.displayName)
         .navigationBarTitleDisplayMode(.inline)
     }
 
     private var header: some View {
         HStack(spacing: 13) {
-            ProviderBadge(style: style, size: 48)
+            ProviderBadge(style: style, size: 44)
             VStack(alignment: .leading, spacing: 2) {
-                Text(provider.displayName).font(.qwDisplay(20)).foregroundStyle(Theme.ink)
-                Text(provider.providerType).font(.qwLabel(11)).foregroundStyle(Theme.ink3)
+                Text(provider.displayName)
+                    .font(.qwDisplay(20))
+                    .foregroundStyle(QWColor.foreground)
+                HStack(spacing: 8) {
+                    if model.demoMode {
+                        demoTag
+                    }
+                    if model.lastUpdated != nil {
+                        Text("刚刚同步")
+                            .font(.system(size: 12))
+                            .foregroundStyle(QWColor.subtle)
+                    }
+                }
             }
             Spacer()
         }
-        .padding(.top, 8)
+        .padding(.vertical, QWTokens.Space.md)
+    }
+
+    private var demoTag: some View {
+        Text("DEMO DATA")
+            .font(.qwMono(10, .bold))
+            .foregroundStyle(QWColor.warning)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(QWColor.warning.opacity(0.6)))
     }
 }
 
-private struct WindowDetailCard: View {
+// ── 窗口信息段 ──────────────────────────────────────────────────────────
+
+private struct WindowSegment: View {
     let window: QuotaWindow
     var mode: QuotaDisplayMode = .used
 
-    var body: some View {
-        let level = UsageLevel(remainingPct: window.remainingPct)
-        HStack(spacing: 18) {
-            RingGauge(pct: window.displayPct(mode), level: level,
-                      caption: window.windowKind.label, diameter: 96, lineWidth: 10)
+    private var level: UsageLevel { UsageLevel(remainingPct: window.remainingPct) }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 7) {
-                    Text(window.windowName).font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Theme.ink)
-                    Text(level.label)
-                        .font(.qwLabel(10)).foregroundStyle(level.color)
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(level.color.opacity(0.14), in: Capsule())
-                }
-                infoRow("已用", "\(Int(window.usedPct.rounded()))%")
-                infoRow("剩余", "\(Int(window.remainingPct.rounded()))%")
+    var body: some View {
+        HStack(alignment: .center, spacing: QWTokens.Space.xl) {
+            RingGauge(pct: window.displayPct(mode), level: level,
+                      caption: mode.label, diameter: 84)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(cleanName)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(QWColor.foreground)
                 if window.unit != "percent" {
-                    infoRow("用量", "\(fmt(window.used)) / \(fmt(window.total)) \(window.unit)")
+                    HStack(spacing: 5) {
+                        Text(fmt(window.used))
+                            .font(.qwMono(13, .bold))
+                            .foregroundStyle(QWColor.foreground)
+                        Text("/ \(fmt(window.total)) \(window.unit)")
+                            .font(.qwMono(13))
+                            .foregroundStyle(QWColor.subtle)
+                    }
                 }
-                infoRow("重置", absoluteReset(window))
+                if let date = window.resetDate {
+                    HStack(spacing: 5) {
+                        Text("重置")
+                            .font(.system(size: 12))
+                            .foregroundStyle(QWColor.subtle)
+                        Text(absoluteReset(date))
+                            .font(.qwMono(12))
+                            .foregroundStyle(QWColor.muted)
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity)
-        .background(InstrumentCard(shape: RoundedRectangle(cornerRadius: 22, style: .continuous)))
+        .padding(.vertical, QWTokens.Space.md)
     }
 
-    private func infoRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).font(.qwLabel(11)).foregroundStyle(Theme.ink3)
-            Spacer()
-            Text(value).font(.qwNum(12, .medium)).foregroundStyle(Theme.ink2)
+    /// "session (5h)" → "Session"；没有窗口名时退回类型中文
+    private var cleanName: String {
+        let trimmed = Formatting.cleanWindowName(window.windowName).trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty {
+            return trimmed.prefix(1).uppercased() + trimmed.dropFirst()
         }
+        return window.windowKind.displayName
     }
 
     private func fmt(_ v: Double) -> String {
@@ -93,11 +121,13 @@ private struct WindowDetailCard: View {
             : String(format: "%.1f", v)
     }
 
-    private func absoluteReset(_ window: QuotaWindow) -> String {
-        guard let date = window.resetDate else { return "—" }
+    /// 7 天内：周几 HH:mm；更远：M 月 d 日。倒计时补全大写。
+    private func absoluteReset(_ date: Date) -> String {
+        let days = Calendar.current.dateComponents([.day], from: Date(), to: date).day ?? 0
         let f = DateFormatter()
-        f.dateFormat = "MM-dd HH:mm"
-        let rel = Formatting.resetCountdown(date).map { "（\($0)后）" } ?? ""
-        return f.string(from: date) + rel
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = days <= 7 ? "E HH:mm" : "M 月 d 日"
+        let rel = Formatting.resetCountdown(date).map { $0.uppercased() } ?? ""
+        return "\(f.string(from: date)) · \(rel)"
     }
 }

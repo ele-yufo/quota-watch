@@ -1,0 +1,32 @@
+{
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "colors": [
+    {
+      "color": {
+        "red": "0.4939",
+        "green": "0.2359",
+        "blue": "0.3674",
+        "alpha": "1.000"
+      },
+      "idiom": "universal"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "color": {
+        "red": "0.6523",
+        "green": "0.3785",
+        "blue": "0.5121",
+        "alpha": "1.000"
+      },
+      "idiom": "universal"
+    }
+  ]
+}

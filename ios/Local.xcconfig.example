@@ -1,0 +1,8 @@
+// quota-watch iOS 本地签名配置模板
+// 复制为 ios/Local.xcconfig（不入库）并填入你的 Apple Developer Team ID：
+//   cp Local.xcconfig.example Local.xcconfig
+// Team ID 查看：https://developer.apple.com/account 顶部 Membership Details，
+// 或 `security find-identity -v -p codesigning` 的输出（括号内为 Team ID）。
+// 个人免费账号（7 天）与付费账号（约 1 年）都可以，过期后重跑
+// ios/run-on-device.sh 即可重新签名安装。
+DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE

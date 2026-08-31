@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>quota·watch</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,19 +22,23 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>CFBundleDisplayName</key>
-	<string>quota·watch</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>扫描 quota-watch connect 生成的配对二维码以自动填入连接信息。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>连接局域网内运行 quota-watch daemon 的 Mac 以读取配额。</string>
 	<key>UIAppFonts</key>
 	<array>
-		<string>Fraunces-Black.ttf</string>
-		<string>Fraunces-BlackItalic.ttf</string>
+		<string>Fraunces-Variable.ttf</string>
 		<string>JetBrainsMono-Regular.ttf</string>
 		<string>JetBrainsMono-Medium.ttf</string>
 		<string>JetBrainsMono-Bold.ttf</string>
 		<string>JetBrainsMono-ExtraBold.ttf</string>
 	</array>
-	<key>UIUserInterfaceStyle</key>
-	<string>Dark</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
@@ -41,22 +47,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<!--
-	  The Mac daemon serves plain HTTP, and the user may reach it over a LAN IP,
-	  a tunnel (Tailscale's 100.64/10 CGNAT, WireGuard, …), or a public host —
-	  none of which NSAllowsLocalNetworking's RFC1918/.local scope fully covers.
-	  So cleartext must be allowed broadly. The app itself warns when the host
-	  isn't a private IP (see HostReachability) and recommends a tunnel over a
-	  raw port-forward. A future TLS/signed-pairing channel could drop this.
-	-->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>连接局域网内运行 quota-watch daemon 的 Mac 以读取配额。</string>
-	<key>NSCameraUsageDescription</key>
-	<string>扫描 quota-watch connect 生成的配对二维码以自动填入连接信息。</string>
+	<key>UIUserInterfaceStyle</key>
+	<string>Dark</string>
 </dict>
 </plist>

@@ -1,112 +1,92 @@
 import SwiftUI
 
-/// First-run welcome — dark instrument aesthetic, brand wordmark, routes into
-/// the pairing flow. Reachable inside the main NavigationStack.
+/// 首次启动 / 未配对 —— 先解释本地优先，再给唯一主操作；
+/// 不把端口、token 等实现细节提前暴露给首次使用者。
 struct WelcomeView: View {
     @Environment(AppModel.self) private var model
+
+    @State private var showPairing = false
+    @State private var pairingMode: PairingMode = .scan
     @State private var appear = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Spacer(minLength: 44)
-
-                // a decorative hero dial as the brand mark
-                RingGauge(pct: 65, level: .ok, diameter: 120, lineWidth: 12, showNumber: false)
-                    .overlay(
-                        Image(systemName: "gauge.with.dots.needle.67percent")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(Theme.ink)
-                    )
-                    .scaleEffect(appear ? 1 : 0.85)
-                    .opacity(appear ? 1 : 0)
-                    .padding(.bottom, 22)
+                Spacer(minLength: 52)
 
                 HStack(spacing: 0) {
-                    Text("quota").font(.qwDisplay(34)).foregroundStyle(Theme.ink)
-                    Text("·").font(.qwDisplay(34)).foregroundStyle(UsageLevel.low.color)
-                    Text("watch").font(.qwDisplayItalic(34)).foregroundStyle(Theme.ink)
+                    Text("quota").font(.qwDisplay(42)).foregroundStyle(QWColor.foreground)
+                    Text("—").font(.qwDisplay(42)).foregroundStyle(QWColor.accent)
+                    Text("watch").font(.qwDisplay(42)).foregroundStyle(QWColor.foreground)
                 }
-                Text("盯住每个 AI 订阅的配额")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Theme.ink2)
-                    .padding(.top, 6)
-                    .padding(.bottom, 36)
+                .scaleEffect(appear ? 1 : 0.96)
+                .opacity(appear ? 1 : 0)
 
-                VStack(spacing: 16) {
-                    FeatureRow(symbol: "bolt.fill", tint: UsageLevel.warn.color,
-                               title: "近实时",
-                               detail: "连接你 Mac 上的 quota-watch，约 10 秒刷新一次")
-                    FeatureRow(symbol: "gauge.with.dots.needle.50percent", tint: ProviderStyle.of("glm-cn").accent,
-                               title: "多渠道一屏",
-                               detail: "Claude / Codex / GLM / Kimi 等用量一眼看全")
-                    FeatureRow(symbol: "lock.fill", tint: UsageLevel.ok.color,
-                               title: "只连你自己的设备",
-                               detail: "数据只在你的局域网 / 隧道里传，不经任何云端")
-                }
-                .padding(.horizontal, 22)
-                .padding(.bottom, 40)
-
-                NavigationLink(destination: SettingsView()) {
-                    Text("开始配对")
-                        .font(.system(size: 17, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 15)
-                        .background(UsageLevel.ok.color, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        .foregroundStyle(Color.black)
-                }
-                .padding(.horizontal, 22)
+                Text("把 Mac 上的配额，带到随手可看的地方。采集器只在你的 Mac 上读取本地订阅状态；iPhone 只接收你主动配对的摘要。")
+                    .font(.system(size: 15))
+                    .foregroundStyle(QWColor.muted)
+                    .lineSpacing(5)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 36)
+                    .padding(.top, 18)
+                    .padding(.bottom, 42)
 
                 Button {
-                    withAnimation(.snappy) { model.enterDemo() }
+                    pairingMode = .scan
+                    showPairing = true
                 } label: {
-                    Text("先看示例数据")
-                        .font(.system(size: 15, weight: .medium))
+                    Text("扫描 Mac 上的配对码")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(QWColor.accentInk)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Theme.hairline))
-                        .foregroundStyle(Theme.ink2)
+                        .frame(height: 50)
+                        .background(QWColor.accent,
+                                    in: RoundedRectangle(cornerRadius: QWTokens.Radius.control + 4, style: .continuous))
                 }
-                .padding(.horizontal, 22)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 32)
+
+                Button {
+                    pairingMode = .manual
+                    showPairing = true
+                } label: {
+                    Text("改用 6 位配对码")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(QWColor.foreground)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .overlay(RoundedRectangle(cornerRadius: QWTokens.Radius.control + 4, style: .continuous)
+                            .strokeBorder(QWColor.border))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 32)
                 .padding(.top, 10)
 
-                Text("在 Mac 上运行 quota-watch connect --qr，扫码即可")
-                    .font(.qwLabel(11))
-                    .foregroundStyle(Theme.ink3)
+                Text("配对后约每 10 秒刷新。离线时继续显示最近一次缓存，不上传账号凭据。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(QWColor.subtle)
                     .multilineTextAlignment(.center)
-                    .padding(.top, 14).padding(.horizontal, 30)
+                    .padding(.horizontal, 40)
+                    .padding(.top, 18)
 
-                Spacer(minLength: 44)
+                Button {
+                    withAnimation(QWTokens.Motion.reveal) { model.enterDemo() }
+                } label: {
+                    Text("先看示例数据")
+                        .font(.system(size: 13))
+                        .foregroundStyle(QWColor.subtle)
+                        .padding(.vertical, 24)
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 40)
             }
             .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
-        .toolbar(.hidden, for: .navigationBar)
-        .onAppear { withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) { appear = true } }
-    }
-}
-
-private struct FeatureRow: View {
-    let symbol: String
-    let tint: Color
-    let title: String
-    let detail: String
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous).fill(tint.opacity(0.16))
-                Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(tint)
-            }
-            .frame(width: 42, height: 42)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
-                Text(detail).font(.qwLabel(11)).foregroundStyle(Theme.ink2)
-            }
-            Spacer(minLength: 0)
+        .sheet(isPresented: $showPairing) {
+            PairingSheetView(initialMode: pairingMode)
         }
-        .padding(14)
-        .background(InstrumentCard(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)))
+        .onAppear { withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) { appear = true } }
     }
 }

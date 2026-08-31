@@ -71,7 +71,8 @@ enum QuotaFetcher {
         if !host.isEmpty {
             let client = APIClient(
                 host: host, port: SharedStore.port,
-                token: SharedStore.token.isEmpty ? nil : SharedStore.token, timeout: 5)
+                token: SharedStore.token.isEmpty ? nil : SharedStore.token,
+                caFingerprint: SharedStore.caFingerprint, timeout: 5)
             if let providers = try? await client.quota() {
                 SharedStore.saveSnapshot(providers)
                 return QuotaEntry(
@@ -100,9 +101,13 @@ enum QuotaFetcher {
         let page = SharedStore.widgetPage
         let mode = SharedStore.displayMode
         if let cached = SharedStore.loadSnapshot() {
+            // A snapshot older than one refresh cycle means the daemon was
+            // unreachable through the last fetch — mark it stale so the
+            // "实时/缓存" hint is honest instead of always claiming live data.
+            let isFresh = Date().timeIntervalSince(cached.date) < refreshInterval
             return QuotaEntry(
                 date: Date(), providers: cached.providers, selectedProviderId: providerId,
-                lastUpdated: cached.date, isStale: false, page: page, displayMode: mode)
+                lastUpdated: cached.date, isStale: !isFresh, page: page, displayMode: mode)
         }
         return QuotaEntry(
             date: Date(), providers: [], selectedProviderId: providerId,
@@ -117,7 +122,8 @@ enum QuotaFetcher {
         guard !host.isEmpty else { return false }
         let client = APIClient(
             host: host, port: SharedStore.port,
-            token: SharedStore.token.isEmpty ? nil : SharedStore.token, timeout: 8)
+            token: SharedStore.token.isEmpty ? nil : SharedStore.token,
+            caFingerprint: SharedStore.caFingerprint, timeout: 8)
         guard let providers = try? await client.quota() else { return false }
         SharedStore.saveSnapshot(providers)
         return !providers.isEmpty

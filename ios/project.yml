@@ -23,6 +23,11 @@ targets:
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
+    # Explicit shared scheme — without it `xcodebuild -scheme QuotaWatch`
+    # resolves an implicit scheme whose buildables have empty platforms, and
+    # every -destination (including the connected iPhone) fails to resolve.
+    scheme:
+      testTargets: []
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(QW_APP_ID)
