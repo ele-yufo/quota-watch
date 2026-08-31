@@ -8,11 +8,11 @@
 
 See how much of each plan you've burned — and how long until it resets — across
 Claude Code, Codex, GLM, OpenCode Go, Kimi, Antigravity and more.
-On your desktop, in your menu bar, and on your iPhone.
+In your browser, and in your agent harness over MCP.
 No cloud, no telemetry — your tokens never leave your machine.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Web%20·%20iOS%20·%20Android%20·%20macOS%20·%20CLI-lightgrey)
+![Platforms](https://img.shields.io/badge/platforms-Web%20·%20CLI%20·%20MCP-lightgrey)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
 
 <img src="docs/screenshots/web-terminal.png" width="820" alt="quota-watch web dashboard — terminal theme" />
@@ -34,8 +34,7 @@ shows you — everywhere you look — exactly how much is left and when it reset
 - ⚡ **Near-realtime** — ~10 s when usage is moving, backing off when idle. GLM tips over its cap and you see it in seconds, not half an hour.
 - 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month), so `5h`, `7d` and `1mo` always read the same order across every surface.
 - 🎨 **Five web dashboards, five layouts** — not recolours. Each theme is its own composition, visualization and motion (see below).
-- 📱 **iOS + Android apps with widgets** — a dark instrument UI with real provider logos and ring gauges; pairs by QR over the LAN or a tunnel. Home-screen widgets show the tightest window at a glance (pin a provider if you prefer).
-- 🖥 **macOS menu bar** — the worst window's % in the bar, a per-provider popover on click.
+- 🤖 **MCP server** — agents query quota state and get headroom-ranked channel recommendations over stdio or HTTPS.
 - 🔒 **Local-first & private** — SQLite on your machine; credentials are used only to call each provider's own API and are never uploaded anywhere.
 
 ## The web dashboard — one product, five personalities
@@ -56,28 +55,6 @@ control dock (top-right, always in the same place).
     <td colspan="2"><b>Blueprint</b> — a technical drawing sheet with SVG gauge instruments<br/><img src="docs/screenshots/web-blueprint.png" width="60%" alt="Blueprint theme" /></td>
   </tr>
 </table>
-
-## The iOS app
-
-<img src="docs/screenshots/ios-main.png" width="300" align="right" alt="quota-watch iOS app" />
-
-- **Ring-gauge dials** per window, coloured by headroom, with brand logos for every provider.
-- **QR pairing** — run `quota-watch connect --qr` on the Mac and scan; host / port / token fill in automatically.
-- **LAN or public** — connects over your local network or a tunnel (Tailscale / Cloudflare); it warns before sending a token in the clear to a public host.
-- **Dismissible alerts, haptics, live refresh** — the critical-window banner clears with a tap and only returns when something *new* goes critical.
-- **Widgets** — home-screen small (one dial) & medium (multi-provider overview), plus lock-screen / Dynamic Island accessories. They track the tightest window automatically, or long-press to pin a specific provider; data fetches over your tunnel with a cached fallback.
-
-SwiftUI, iOS 18+. Widgets need an App Group (paid Apple Developer account). See [`ios/README.md`](ios/README.md) to build it.
-
-## The Android app
-
-A port of the iOS app to Jetpack Compose + Glance widgets — same copy, same
-ring gauges, same pairing flow against the same daemon. Notable differences:
-manual pairing **requires the CA fingerprint** (the daemon is HTTPS-only; the
-iOS cleartext fallback does not exist here), and there are no lock-screen
-widgets (Android has no equivalent). See [`android/README.md`](android/README.md).
-
-<br clear="all" />
 
 ## Quick start
 
@@ -104,24 +81,16 @@ open http://localhost:3000
 | `quota-watch status [--json]` | Quick quota overview |
 | `quota-watch dashboard` | Interactive TUI |
 | `quota-watch config add/list/test/remove <provider>` | Manage providers |
-| `quota-watch daemon start [--lan]` | Background polling + API (`--lan` binds `0.0.0.0` with token auth, for iOS) |
-| `quota-watch connect [--qr] [--host <addr>]` | Pair the iOS app (QR / manual; `--host` for a public address) |
-| `quota-watch mcp` | MCP server on stdio — let an agent harness read quota/token state |
+| `quota-watch daemon start [--lan]` | Background polling + API (`--lan` binds `0.0.0.0` with token auth, for LAN/tunnel access) |
+| `quota-watch mcp` | MCP server on stdio — let an agent harness read quota state |
 
-## Token ledger & MCP (for agent dispatch)
+## MCP (for agent dispatch)
 
-Beyond provider-reported percentages, the daemon keeps an **absolute token
-ledger**: it incrementally scans the session logs your CLIs already write
-(`~/.claude/projects`, `~/.codex/sessions`) into SQLite, and exposes
-consumption + burn-rate + an extrapolated per-window token budget at
-`GET /tokens` (and in each provider's drawer in the web UI).
-
-For agent harnesses, `quota-watch mcp` serves three MCP tools over stdio:
+For agent harnesses, `quota-watch mcp` serves two MCP tools over stdio:
 
 | Tool | What it answers |
 |---|---|
 | `get_quota_overview` | All channels: windows, remaining %, resets, burn predictions, last-poll freshness |
-| `get_token_usage` | Absolute tokens per channel (5h/24h/7d spans) + estimated budget/remaining |
 | `recommend_channel` | Headroom-ranked channel list for dispatching a task (staleness- and error-aware) |
 
 Register it with your harness, e.g. Claude Code:
@@ -130,7 +99,7 @@ Register it with your harness, e.g. Claude Code:
 claude mcp add quota-watch -- node "$PWD/packages/cli/dist/index.js" mcp
 ```
 
-**Remote machines** (no daemon, no session logs there) use the same three
+**Remote machines** use the same two
 tools over streamable HTTP: the daemon also serves MCP at `/mcp` on its HTTPS
 API, gated by the same Bearer token — so through the frp tunnel any server can
 reach it. Its TLS cert only lists 127.0.0.1 by default; to add the tunnel's
@@ -143,7 +112,7 @@ and every device's pin — is unaffected. On the remote machine:
 # trust ONLY this CA for node (additive — doesn't touch system roots)
 mkdir -p ~/.quota-watch && scp mac:~/.quota-watch/certs/ca.crt ~/.quota-watch/
 echo 'export NODE_EXTRA_CA_CERTS="$HOME/.quota-watch/ca.crt"' >> ~/.shell_env
-claude mcp add quota-watch --transport http https://<public-ip>:38737/mcp \
+claude mcp add quota-watch --transport http https://<public-ip>:3737/mcp \
   --header "Authorization: Bearer <api token from ~/.quota-watch/config.json>"
 ```
 
@@ -159,8 +128,8 @@ cp deploy/mac/frpc.toml.example ~/.quota-watch/frpc.toml   # fill server + token
 ./deploy/mac/install-services.sh            # now also installs the frpc tunnel
 ```
 
-See [`deploy/mac/README.md`](deploy/mac/README.md) for the full setup, security
-notes, and how to pair the iOS app over the public internet.
+See [`deploy/mac/README.md`](deploy/mac/README.md) for the full setup and
+security notes.
 
 ## Supported providers
 
@@ -184,16 +153,15 @@ timestamp**, not the calendar month.
 ```
 quota-watch/
 ├── packages/core/    unified quota model (window kinds) + providers + scheduler
-│                     + alerter + daemon HTTP API + CLI-credential reuse/refresh
-├── packages/cli/     status · config · dashboard · daemon · connect (QR pairing)
+│                     + alerter + daemon HTTPS API + CLI-credential reuse/refresh
+├── packages/cli/     status · config · dashboard · daemon · mcp (stdio server)
 ├── packages/web/     Next.js dashboard — 5 per-theme layouts, :3000
-├── ios/              SwiftUI app — connects to the daemon over LAN / tunnel
-├── android/          Compose port of the iOS app (Glance widgets, same daemon)
-└── mac/              macOS menu bar (reads the same SQLite)
+└── deploy/mac/       launchd agents: daemon + web (+ optional frp tunnel)
 ```
 
 The daemon is the hub: it polls providers, persists snapshots to SQLite, and serves
-one HTTP API (`/health`, `/quota`, `/poll`). Web, menu bar and iOS are all views of it.
+one HTTPS API (`/health`, `/quota`, `/poll`, `/mcp`). The web dashboard and MCP
+clients are views of it.
 
 ## Configuration
 

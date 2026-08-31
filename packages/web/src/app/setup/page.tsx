@@ -304,12 +304,7 @@ export default function SetupPage() {
 
       <div className="mt-10 border-t border-line pt-5 space-y-1.5">
         <p className="font-mono text-[11px] text-ink-4 leading-relaxed">
-          手机（iOS）连接：终端运行{" "}
-          <code className="text-ink-3">quota-watch daemon start --lan</code>，再用{" "}
-          <code className="text-ink-3">quota-watch connect</code> 查看配对信息。
-        </p>
-        <p className="font-mono text-[11px] text-ink-4 leading-relaxed">
-          连接后回{" "}
+          保存后回{" "}
           <Link href="/" className="underline hover:text-ink">
             dashboard
           </Link>{" "}

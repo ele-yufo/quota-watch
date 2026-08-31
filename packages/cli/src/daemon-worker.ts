@@ -4,7 +4,7 @@
  * Spawned by `quota-watch daemon start` via child_process.spawn().
  * Loads all providers from DB, creates a registry, starts the scheduler,
  * evaluates alert rules, serves the HTTP API (health/quota/poll — consumed
- * by the web dashboard, menu bar and iOS app), and logs to
+ * by the web dashboard and remote MCP clients), and logs to
  * ~/.quota-watch/daemon.log. Poll cadence + API binding come from
  * ~/.quota-watch/config.json.
  */
@@ -30,7 +30,6 @@ import {
   antigravityProvider,
   glmCnProvider,
   copilotProvider,
-  scanSessionLogs,
 } from '@quota-watch/core';
 import type { AlertNotifier, AlertMessage } from '@quota-watch/core';
 import type { Server } from 'node:http';
@@ -169,25 +168,9 @@ async function main(): Promise<void> {
   scheduler.start();
   log('INFO', 'Scheduler started');
 
-  // Token ledger: incremental scan of CLI session logs (claude/codex) into
-  // token_events. Cheap after the first run (byte-offset bookmarks), so run
-  // it on a fixed cadence independent of provider polls.
-  const scanTokens = (): void => {
-    try {
-      const r = scanSessionLogs(db);
-      if (r.eventsAdded > 0) {
-        log('INFO', `Token ledger: +${r.eventsAdded} events from ${r.filesSeen} files`);
-      }
-    } catch (err) {
-      log('WARN', `Token ledger scan failed: ${err instanceof Error ? err.message : err}`);
-    }
-  };
-  scanTokens();
-  setInterval(scanTokens, 5 * 60 * 1000).unref();
-
-  // Embedded HTTPS API — web dashboard status/refresh, menu bar, iOS app.
+  // Embedded HTTPS API — web dashboard status/refresh, remote MCP clients.
   // TLS material (local CA + server cert) is generated on first boot; clients
-  // pin the CA fingerprint handed out by /pair/claim.
+  // pin the CA by fingerprint (logged below at startup).
   let apiServer: Server | null = null;
   try {
     const tls = ensureTlsConfig(defaultCertsDir());
@@ -198,7 +181,6 @@ async function main(): Promise<void> {
       port: appConfig.api.port,
       token: appConfig.api.token,
       tls: { certPath: tls.certPath, keyPath: tls.keyPath, caPath: tls.caPath },
-      caFingerprint: tls.caFingerprint,
       // Streamable HTTP MCP at /mcp (stateless — one transport per request),
       // so harnesses on OTHER machines can query quota over the frp tunnel.
       // Local harnesses should prefer `quota-watch mcp` (stdio).

@@ -20,7 +20,7 @@ export interface PollConfig {
 }
 
 export interface ApiConfig {
-  /** 127.0.0.1 = local only; 0.0.0.0 exposes to the LAN (iOS app) */
+  /** 127.0.0.1 = local only; 0.0.0.0 exposes to the LAN (token auth required) */
   host: string;
   port: number;
   /**

@@ -1,11 +1,11 @@
 # quota-watch — 开机自启 + 公网代理（macOS）
 
-把三个后台服务注册成 macOS **launchd 用户级 agent**(`~/Library/LaunchAgents/`),
+把后台服务注册成 macOS **launchd 用户级 agent**(`~/Library/LaunchAgents/`),
 登录即启动、崩溃自动拉起:
 
 | Label | 作用 | 端口 |
 |---|---|---|
-| `io.quotawatch.daemon` | 采集 daemon + **HTTPS** API(iOS 配对/取数、web、菜单栏都读它) | `3737` |
+| `io.quotawatch.daemon` | 采集 daemon + **HTTPS** API(web 仪表盘、远程 MCP 客户端都读它) | `3737` |
 | `io.quotawatch.web` | Next.js 仪表盘 | `3000` |
 | `io.quotawatch.frpc` | frp 隧道,把上面两个映射到你的云服务器(公网访问) | — |
 
@@ -15,12 +15,11 @@ daemon 首次启动会在 `~/.quota-watch/certs/` 用系统 `/usr/bin/openssl` �
 本地 CA(EC P-256,10 年)+ 服务器证书(EC P-256,3 年)。API **只走 HTTPS**,
 没有明文回退。
 
-- 所有客户端(CLI / web / macOS 菜单栏 / iOS)都通过 **CA 指纹**信任这条链,
-  不装 CA 到系统钥匙串
-- 配对时 `/pair/start` 和 `/pair/claim` 把 CA 指纹带给 iPhone,QR 里也带
-  `fp=` 参数——iPhone 从**第一个请求**起就 pin 证书,不存在首次信任窗口
+- 客户端(CLI / web / 远程 MCP)通过 **CA 指纹**信任这条链,不装 CA 到系统钥匙串
+- 远程机器手工分发 CA:`scp mac:~/.quota-watch/certs/ca.crt` 后用
+  `NODE_EXTRA_CA_CERTS` 指过去(见根 README 的 Remote machines 段)
 - **轮换证书**:删掉 `~/.quota-watch/certs/` 后重启 daemon 会重新生成;
-  已配对的 iPhone 会因指纹不匹配报「证书已更换,请重新配对」,重新扫码即可
+  远程客户端重新拷贝 `ca.crt` 即可
 
 ## 安装
 
@@ -32,6 +31,10 @@ daemon 首次启动会在 `~/.quota-watch/certs/` 用系统 `/usr/bin/openssl` �
 ```
 
 - 幂等,可反复跑;会先停掉手动起的 daemon/web,再交给 launchd 接管
+- 存在 `frpc.toml` 时:自动签发 `api.token`(隧道会让公网流量看似回环,
+  无 token 等于公网裸奔),并从 `serverAddr` 推导证书 SAN(IP: 或 DNS:,
+  可用 `CERT_EXTRA_SANS` 环境变量覆盖;改 SAN 需删 `certs/server.{crt,key}`
+  后重启 daemon 才生效)
 - 会自检 `node` 能否加载 `better-sqlite3`(ABI 必须匹配);不匹配时用
   `NODE_BIN=/path/to/node ./deploy/mac/install-services.sh` 指定正确的 node
 - 装完自动 `curl` 验证 `:3737/health` 和 `:3000`
@@ -49,25 +52,24 @@ chmod 600 ~/.quota-watch/frpc.toml   # 内含密钥
 ./deploy/mac/install-services.sh     # 这次会把 frpc agent 一起装上
 ```
 
-`frpc.toml` 默认映射 `3737`(必需,iOS 配对)和 `3000`(可选,web;不想公开就删掉
-那个 `[[proxies]]` 块——web 无鉴权,暴露即等于公开你的配额视图)。
+`frpc.toml` 默认映射 `3737`(daemon API / 远程 MCP)和 `3000`(可选,web;不想
+公开就删掉那个 `[[proxies]]` 块——web 无鉴权,暴露即等于公开你的配额视图)。
 
 > **注意**:`~/.quota-watch/frpc.toml` 含 frps token,**不入 git**(仓库里只有
-> `.example` 占位)。frpc↔frps 这一跳在 frp 0.52+ 默认 TLS 加密;手机→frps
-> 的公网那一跳也已是 TLS(daemon 全链路 HTTPS + CA 指纹 pin),Bearer token
-> 仍作为第二道访问控制。
+> `.example` 占位)。frpc↔frps 这一跳在 frp 0.52+ 默认 TLS 加密;客户端→frps
+> 的公网那一跳也已是 TLS(daemon 全链路 HTTPS),Bearer token 仍作为第二道
+> 访问控制。
 
-## 配对 iOS(公网)
+## 远程 MCP(公网)
 
-frpc 起来后,用**云服务器的公网地址**生成配对二维码:
+frpc 起来后,远程机器的 agent harness 通过云服务器地址访问 `/mcp`:
 
 ```bash
-node packages/cli/dist/index.js connect --qr --host <你的云服务器域名或IP>
-# Host=<云服务器地址>  Port=3737  Code=<6 位配对码>(QR 里带 CA 指纹)
+mkdir -p ~/.quota-watch && scp mac:~/.quota-watch/certs/ca.crt ~/.quota-watch/
+echo 'export NODE_EXTRA_CA_CERTS="$HOME/.quota-watch/ca.crt"' >> ~/.shell_env
+claude mcp add quota-watch --transport http https://<公网地址>:3737/mcp \
+  --header "Authorization: Bearer <api token from ~/.quota-watch/config.json>"
 ```
-
-手机端 App「扫码配对」即可通过公网读取配额。Token 不再出现在配对输出里——
-CLI 通过 `/pair/start` 拿 6 位短码,手机用短码换 token。
 
 ## 管理
 

@@ -135,6 +135,14 @@ export class QuotaDB {
       )`);
       this.db.pragma("user_version = 4");
     }
+
+    if (version < 5) {
+      // Token-usage ledger feature removed (estimates proved too inaccurate to
+      // be useful — cache-token extrapolation overstates burn). Drop its tables.
+      this.db.exec(`DROP TABLE IF EXISTS token_events`);
+      this.db.exec(`DROP TABLE IF EXISTS ingest_state`);
+      this.db.pragma("user_version = 5");
+    }
   }
 
   /** v3: token-usage ledger fed by CLI session logs (token monitoring). */
@@ -289,8 +297,7 @@ export class QuotaDB {
   deleteProvider(id: string): void {
     // FK children must go first (foreign_keys = ON, no ON DELETE CASCADE):
     // alert_history → alert_rules → quota_snapshots, plus the un-FK'd
-    // provider_poll_state. token_events stays: it's keyed by provider slug,
-    // not id, and is legitimate history if the channel is ever re-added.
+    // provider_poll_state.
     this.db.transaction(() => {
       this.db
         .prepare("DELETE FROM alert_history WHERE rule_id IN (SELECT id FROM alert_rules WHERE provider_id = ?)")
@@ -358,46 +365,6 @@ export class QuotaDB {
     return true;
   }
 
-  // ── Token ledger (v3) ────────────────────────────────────────────────
-
-  /** Idempotent insert — source_id UNIQUE makes rescans safe. Returns true if new. */
-  insertTokenEvent(e: {
-    sourceId: string;
-    provider: string;
-    timestamp: string;
-    model: string | null;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    totalTokens: number;
-  }): boolean {
-    const res = this.db
-      .prepare(
-        `INSERT OR IGNORE INTO token_events
-         (source_id, provider, timestamp, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, total_tokens)
-         VALUES (@sourceId, @provider, @timestamp, @model, @inputTokens, @outputTokens, @cacheReadTokens, @cacheWriteTokens, @totalTokens)`,
-      )
-      .run(e);
-    return res.changes > 0;
-  }
-
-  getIngestOffset(filePath: string): number {
-    const row = this.db
-      .prepare(`SELECT offset FROM ingest_state WHERE file_path = ?`)
-      .get(filePath) as { offset: number } | undefined;
-    return row?.offset ?? 0;
-  }
-
-  setIngestOffset(filePath: string, offset: number): void {
-    this.db
-      .prepare(
-        `INSERT INTO ingest_state (file_path, offset, updated_at) VALUES (?, ?, ?)
-         ON CONFLICT(file_path) DO UPDATE SET offset = excluded.offset, updated_at = excluded.updated_at`,
-      )
-      .run(filePath, offset, new Date().toISOString());
-  }
-
   /** Record a poll attempt (success or failure) — the freshness signal. */
   recordPoll(providerId: string, status: 'ok' | 'error', error?: string): void {
     this.db
@@ -418,32 +385,6 @@ export class QuotaDB {
                 FROM provider_poll_state WHERE provider_id = ?`)
       .get(providerId) as { lastPollAt: string; lastStatus: string; lastError: string | null } | undefined;
     return row ?? null;
-  }
-
-  /** Aggregate token usage for a provider since an ISO timestamp. */
-  tokenUsageSince(provider: string, sinceIso: string): {
-    events: number;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-    cacheWriteTokens: number;
-    totalTokens: number;
-    firstTs: string | null;
-    lastTs: string | null;
-  } {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS events,
-                COALESCE(SUM(input_tokens), 0) AS inputTokens,
-                COALESCE(SUM(output_tokens), 0) AS outputTokens,
-                COALESCE(SUM(cache_read_tokens), 0) AS cacheReadTokens,
-                COALESCE(SUM(cache_write_tokens), 0) AS cacheWriteTokens,
-                COALESCE(SUM(total_tokens), 0) AS totalTokens,
-                MIN(timestamp) AS firstTs, MAX(timestamp) AS lastTs
-         FROM token_events WHERE provider = ? AND timestamp >= ?`,
-      )
-      .get(provider, sinceIso);
-    return row as ReturnType<QuotaDB["tokenUsageSince"]>;
   }
 
   getSnapshots(providerId: string, windowName: string, since: string): UsageSnapshot[] {

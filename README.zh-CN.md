@@ -7,11 +7,11 @@
 **本地优先的 AI 订阅配额监控。**
 
 一屏盯住 Claude Code、Codex、GLM、OpenCode Go、Kimi、Antigravity 等所有 AI 订阅
-还剩多少额度、多久重置。桌面、菜单栏、iPhone 三端同看。
+还剩多少额度、多久重置。浏览器里看,agent 经 MCP 读。
 无云端、无遥测——你的凭据永远不离开本机。
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Platforms](https://img.shields.io/badge/platforms-Web%20·%20iOS%20·%20Android%20·%20macOS%20·%20CLI-lightgrey)
+![Platforms](https://img.shields.io/badge/platforms-Web%20·%20CLI%20·%20MCP-lightgrey)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
 
 <img src="docs/screenshots/web-terminal.png" width="820" alt="quota-watch 网页仪表盘 — 终端主题" />
@@ -32,8 +32,7 @@
 - ⚡ **近实时** —— 用量变动时约 10 秒刷新,空闲时自动降频。GLM 一超配额你几秒就看到,不是等半小时。
 - 🧭 **统一模型** —— 每个配额窗口带「类型」(session · day · week · month),`5h`/`7d`/`1mo` 在每个端都按同一顺序呈现。
 - 🎨 **五套网页仪表盘,五种布局** —— 不是换配色。每个主题是独立的排版、可视化与动效(见下)。
-- 📱 **iOS app** —— 深色仪表界面、真实厂商图标、环形量表;经局域网或隧道连你的 Mac,扫码配对。
-- 🖥 **macOS 菜单栏** —— 栏内显示最紧张窗口的百分比,点开是每渠道弹层。
+- 🤖 **MCP Server** —— agent 经 stdio 或 HTTPS 查询配额状态、拿按余量排序的派单建议。
 - 🔒 **本地优先、隐私** —— SQLite 存本机;凭据只用于调各家自己的接口,从不上传任何地方。
 
 ## 网页仪表盘 —— 一个产品,五种性格
@@ -53,27 +52,6 @@
     <td colspan="2"><b>Blueprint</b> —— 工程蓝图 + SVG 仪表<br/><img src="docs/screenshots/web-blueprint.png" width="60%" alt="Blueprint 主题" /></td>
   </tr>
 </table>
-
-## iOS app
-
-<img src="docs/screenshots/ios-main.png" width="300" align="right" alt="quota-watch iOS app" />
-
-- **环形量表**逐窗口显示,按余量着色,每家带真实品牌图标。
-- **扫码配对** —— Mac 上跑 `quota-watch connect --qr` 扫一下,主机/端口/Token 自动填好。
-- **局域网或公网** —— 经本地网络或隧道(Tailscale / Cloudflare)连接;向公网地址明文发 Token 前会警告。
-- **可关闭告警、触感、实时刷新** —— 告急横幅一点即消,只有**新**窗口告急才再弹。
-- **内置 Demo 模式** —— 配置前先用示例数据预览整个 app。
-
-SwiftUI,iOS 18+。构建见 [`ios/README.md`](ios/README.md)。
-
-## Android app
-
-iOS 版的 Jetpack Compose 移植(Glance 小组件) —— 同一套文案、同样的环形
-量表、连同一个 daemon。差异:手动配对**必须填 CA 指纹**(daemon 只讲
-HTTPS,iOS 的明文降级通道在这里不存在);无锁屏小组件(Android 无对应物)。
-构建见 [`android/README.md`](android/README.md)。
-
-<br clear="all" />
 
 ## 快速上手
 
@@ -100,23 +78,16 @@ open http://localhost:3000
 | `quota-watch status [--json]` | 快速概览 |
 | `quota-watch dashboard` | 交互式 TUI |
 | `quota-watch config add/list/test/remove <provider>` | 管理渠道 |
-| `quota-watch daemon start [--lan]` | 后台采集 + API(`--lan` 绑 `0.0.0.0` + token 认证,供 iOS) |
-| `quota-watch connect [--qr] [--host <addr>]` | 配对 iOS app(二维码/手动;`--host` 指定公网地址) |
-| `quota-watch mcp` | 以 stdio 运行 MCP Server —— 让 agent 宿主读取额度/token 状态 |
+| `quota-watch daemon start [--lan]` | 后台采集 + API(`--lan` 绑 `0.0.0.0` + token 认证,供局域网/隧道访问) |
+| `quota-watch mcp` | 以 stdio 运行 MCP Server —— 让 agent 宿主读取额度状态 |
 
-## Token 台账与 MCP(面向 agent 派单)
+## MCP(面向 agent 派单)
 
-在厂商报告的百分比之外,daemon 还维护一份**绝对 token 台账**:增量扫描 CLI 自己写的
-会话日志(`~/.claude/projects`、`~/.codex/sessions`)入 SQLite,经 `GET /tokens`
-(web 端每个渠道的详情抽屉里也有)给出消耗量、燃烧速率、以及按已用百分比外推的
-窗口绝对预算。
-
-`quota-watch mcp` 以 stdio 提供三个 MCP 工具:
+`quota-watch mcp` 以 stdio 提供两个 MCP 工具:
 
 | 工具 | 回答什么 |
 |---|---|
 | `get_quota_overview` | 全部渠道:窗口、剩余 %、重置时间、燃烧预测、上次轮询新鲜度 |
-| `get_token_usage` | 各渠道绝对 token 数(5h/24h/7d 区段)+ 估计预算/余量 |
 | `recommend_channel` | 按可派单余量排序的渠道清单(感知数据陈旧与报错) |
 
 接入宿主示例(Claude Code):
@@ -125,7 +96,7 @@ open http://localhost:3000
 claude mcp add quota-watch -- node "$PWD/packages/cli/dist/index.js" mcp
 ```
 
-**远程机器**(没有 daemon、没有会话日志)用同一组工具走 streamable HTTP:daemon 的
+**远程机器**用同一组工具走 streamable HTTP:daemon 的
 HTTPS API 同时把 MCP 挂在 `/mcp`,同一 Bearer token 鉴权——经 frp 隧道任何服务器都能
 连。TLS 证书默认只有 127.0.0.1 的 SAN;要加入隧道公网 IP,在首次生成证书前给 daemon
 环境设 `QUOTA_WATCH_CERT_EXTRA_SANS="IP:<公网IP>"`(macOS launchd 模板已内置),
@@ -135,7 +106,7 @@ HTTPS API 同时把 MCP 挂在 `/mcp`,同一 Bearer token 鉴权——经 frp �
 ```bash
 mkdir -p ~/.quota-watch && scp mac:~/.quota-watch/certs/ca.crt ~/.quota-watch/
 echo 'export NODE_EXTRA_CA_CERTS="$HOME/.quota-watch/ca.crt"' >> ~/.shell_env
-claude mcp add quota-watch --transport http https://<公网IP>:38737/mcp \
+claude mcp add quota-watch --transport http https://<公网IP>:3737/mcp \
   --header "Authorization: Bearer <~/.quota-watch/config.json 里的 api token>"
 ```
 
@@ -161,15 +132,13 @@ OpenCode Go 窗口语义(服务端定义):5h 是真滚动窗口;**weekly 周一 
 quota-watch/
 ├── packages/core/    统一配额模型(窗口 kind)+ providers + 调度器
 │                     + 告警器 + daemon HTTP API + CLI 凭据复用/刷新
-├── packages/cli/     status · config · dashboard · daemon · connect(扫码配对)
+├── packages/cli/     status · config · dashboard · daemon · mcp(stdio server)
 ├── packages/web/     Next.js 仪表盘 —— 五套按主题的布局,:3000
-├── ios/              SwiftUI app —— 经局域网/隧道连 daemon
-├── android/          iOS app 的 Compose 移植(Glance 小组件,同一个 daemon)
-└── mac/              macOS 菜单栏(读同一个 SQLite)
+└── deploy/mac/       launchd agent:daemon + web(+ 可选 frp 隧道)
 ```
 
-daemon 是中枢:轮询各家、把快照存进 SQLite、对外提供一个 HTTP API(`/health`、
-`/quota`、`/poll`)。网页、菜单栏、iOS 都是它的视图。
+daemon 是中枢:轮询各家、把快照存进 SQLite、对外提供一个 HTTPS API(`/health`、
+`/quota`、`/poll`、`/mcp`)。网页仪表盘与 MCP 客户端都是它的视图。
 
 ## 配置
 

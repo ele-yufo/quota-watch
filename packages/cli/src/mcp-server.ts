@@ -1,12 +1,11 @@
 /**
  * mcp-server.ts — `quota-watch mcp`: MCP server over stdio for agent harnesses.
  *
- * Lets a main agent (Claude Code, Codex, …) read quota state and token burn
- * before dispatching work: "which channel has headroom for this ticket?" is
+ * Lets a main agent (Claude Code, Codex, …) read quota state and burn
+ * predictions before dispatching work: "which channel has headroom for this ticket?" is
  * the motivating question — see recommend_channel.
  *
- * Data comes straight from the daemon's SQLite DB (read + one ledger scan at
- * startup), NOT the HTTPS API: the MCP server must still answer when the
+ * Data comes straight from the daemon's SQLite DB, NOT the HTTPS API: the MCP server must still answer when the
  * daemon is down — staleness is signalled via snapshot timestamps, and the
  * caller can decide. WAL makes concurrent daemon/CLI/MCP access safe.
  */
@@ -15,10 +14,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import {
   QuotaDB,
-  buildTokensResponse,
-  estimateWindowTokens,
   predictConsumption,
-  scanSessionLogs,
 } from '@quota-watch/core';
 
 const JSON_CONTENT = (data: unknown) => ({
@@ -79,8 +75,6 @@ function windowView(
 }
 
 export function createMcpServer(db: QuotaDB): McpServer {
-  // NOTE: no ledger scan here — stdio mode scans once at startup, the daemon
-  // scans on a 5-min timer; scanning per HTTP request would be wasteful.
   const server = new McpServer({
     name: 'quota-watch',
     version: '0.1.0',
@@ -107,28 +101,6 @@ export function createMcpServer(db: QuotaDB): McpServer {
           .filter((s) => s.providerId === p.id)
           .map((w) => windowView(db, p.id, w)),
       }));
-      return JSON_CONTENT(out);
-    },
-  );
-
-  server.registerTool(
-    'get_token_usage',
-    {
-      description:
-        'Absolute token consumption from local CLI session logs (claude/codex), plus ' +
-        'extrapolated window budgets: estimatedBudgetTokens = tokens counted in the window ' +
-        'divided by the provider-reported used fraction. Estimates are order-of-magnitude — ' +
-        'cache tokens do not count 1:1 against real plan budgets.',
-      inputSchema: {
-        provider_id: z
-          .string()
-          .optional()
-          .describe('provider id (e.g. "claude-main"); omit for all'),
-      },
-    },
-    async ({ provider_id }) => {
-      const all = buildTokensResponse(db);
-      const out = provider_id ? all.filter((p) => p.providerId === provider_id) : all;
       return JSON_CONTENT(out);
     },
   );
@@ -208,24 +180,11 @@ export function createMcpServer(db: QuotaDB): McpServer {
           }
         }
 
-        // token headroom estimate, when the CLI log ledger covers this provider
-        let tokenHeadroom: number | null = null;
-        if (anchor) {
-          const est = estimateWindowTokens(db, p.provider, {
-            kind: anchor.windowKind,
-            name: anchor.windowName,
-            usedPct: anchor.total > 0 ? (anchor.used / anchor.total) * 100 : 0,
-            remainingPct: anchor.remainingPct,
-          });
-          tokenHeadroom = est?.estimatedRemainingTokens ?? null;
-        }
-
         return {
           providerId: p.id,
           displayName: p.displayName,
           providerType: p.provider,
           score,
-          estimatedRemainingTokens: tokenHeadroom,
           reasons,
         };
       });
@@ -244,14 +203,6 @@ export function createMcpServer(db: QuotaDB): McpServer {
 
 export async function runMcpServer(): Promise<void> {
   const db = new QuotaDB(); // default ~/.quota-watch/data.db
-
-  // One ledger scan so token answers are fresh even if the daemon is down
-  // (short sync writes; WAL arbitrates with the daemon).
-  try {
-    scanSessionLogs(db);
-  } catch {
-    /* ledger is best-effort */
-  }
 
   const server = createMcpServer(db);
   const transport = new StdioServerTransport();

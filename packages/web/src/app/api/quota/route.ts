@@ -7,7 +7,7 @@ const DB_PATH = join(homedir(), '.quota-watch', 'data.db');
 /**
  * GET /api/quota — latest snapshot per provider×window, windows sorted by
  * kind (session → day → week → month). Same shape as the daemon API's /quota
- * so web + iOS render identically.
+ * so every client renders identically.
  */
 export async function GET() {
   let db: QuotaDB;

@@ -92,7 +92,7 @@ function launchdJobLoaded(): boolean {
 
 function startDaemon(options: { lan?: boolean } = {}): void {
   // --lan persists config REGARDLESS of how the daemon is run (launchd or
-  // CLI-spawned) — refusing before this block made the documented pairing
+  // CLI-spawned) — refusing before this block made the documented remote-access
   // flow a no-op on launchd installs.
   if (options.lan) {
     const config = loadAppConfig();
@@ -101,7 +101,6 @@ function startDaemon(options: { lan?: boolean } = {}): void {
     }
     const withToken = ensureApiToken(loadAppConfig());
     console.log(chalk.dim(`LAN mode: API will bind 0.0.0.0:${withToken.api.port} (token auth)`));
-    console.log(chalk.dim('Pair a device with: quota-watch connect'));
   }
 
   if (launchdJobLoaded()) {
@@ -220,7 +219,7 @@ export function registerDaemonCommand(program: Command): void {
   daemon
     .command('start')
     .description('Start background polling in the background')
-    .option('--lan', 'expose the daemon API on the LAN (0.0.0.0) for the iOS app')
+    .option('--lan', 'expose the daemon API on the LAN (0.0.0.0, token auth required)')
     .action((options: { lan?: boolean }) => {
       startDaemon(options);
     });

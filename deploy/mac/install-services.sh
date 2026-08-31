@@ -38,10 +38,45 @@ fi
 
 mkdir -p "$LA_DIR" "$DATA_DIR"
 
+# Cert SANs for the tunnel endpoint: explicit override wins, else derive from
+# frpc.toml's serverAddr (IP: for a literal address, DNS: for a hostname).
+# Only takes effect on FIRST cert generation (delete certs/server.{crt,key}
+# and kickstart the daemon to re-issue with new SANs — the CA pin survives).
+CERT_EXTRA_SANS="${CERT_EXTRA_SANS:-}"
+if [ -z "$CERT_EXTRA_SANS" ] && [ -f "$DATA_DIR/frpc.toml" ]; then
+  ADDR=$(sed -n 's/^serverAddr *= *"\(.*\)"/\1/p' "$DATA_DIR/frpc.toml" | head -1)
+  if [[ "$ADDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    CERT_EXTRA_SANS="IP:$ADDR"
+  elif [ -n "$ADDR" ]; then
+    CERT_EXTRA_SANS="DNS:$ADDR"
+  fi
+fi
+
+# A tunnel makes the daemon publicly reachable while it still looks loopback
+# to the authorizer — without an api.token that is unauthenticated exposure.
+# Mint one before frpc ever starts. (Local CLI/web read it from config.json.)
+if [ -f "$DATA_DIR/frpc.toml" ]; then
+  /usr/bin/python3 - "$DATA_DIR/config.json" <<'PY'
+import json, os, sys, uuid
+path = sys.argv[1]
+cfg = {}
+if os.path.exists(path):
+    cfg = json.load(open(path))
+api = cfg.setdefault("api", {})
+if not api.get("token"):
+    api["token"] = uuid.uuid4().hex
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(cfg, f, indent=2)
+    print("✓ minted api.token (tunnel exposure requires Bearer auth)")
+PY
+fi
+
 # Fill a template's __PLACEHOLDERS__ and write the plist. Paths never contain
 # '#', so it is a safe sed delimiter.
 render() {
   sed -e "s#__NODE__#${NODE_BIN}#g" \
+      -e "s#__CERT_EXTRA_SANS__#${CERT_EXTRA_SANS}#g" \
       -e "s#__FRPC__#${FRPC_BIN}#g" \
       -e "s#__WORKER__#${WORKER}#g" \
       -e "s#__NEXT_BIN__#${NEXT_BIN}#g" \

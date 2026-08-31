@@ -5,7 +5,6 @@ import { statusCommand } from './commands/status.js';
 import { registerConfigCommand } from './commands/config.js';
 import { dashboardCommand } from './commands/dashboard.js';
 import { registerDaemonCommand } from './commands/daemon.js';
-import { registerConnectCommand } from './commands/connect.js';
 import { runMcpServer } from './mcp-server.js';
 
 const program = new Command();
@@ -20,7 +19,6 @@ statusCommand(program);
 registerConfigCommand(program);
 dashboardCommand(program);
 registerDaemonCommand(program);
-registerConnectCommand(program);
 
 program
   .command('mcp')

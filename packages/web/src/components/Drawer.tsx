@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { CardData, LatestSnapshot } from "@/lib/types";
 import { InkBand } from "./InkBand";
 import { AlertRuleList } from "./AlertRuleList";
@@ -11,82 +11,6 @@ import {
   INK_TEXT,
   statusFromRemaining,
 } from "@/lib/format";
-
-// ── Token ledger (absolute consumption from CLI session logs) ──────────
-
-interface TokensApiWindow {
-  windowName: string;
-  windowKind: string;
-  usedPct: number;
-  consumedTokens: number;
-  estimatedBudgetTokens: number | null;
-  estimatedRemainingTokens: number | null;
-  burnRatePerHour: number | null;
-}
-interface TokensApiProvider {
-  providerId: string;
-  spans: Record<string, { totalTokens: number; events: number }>;
-  windows: TokensApiWindow[];
-}
-
-/** 1234567 → "1.23M" — small values get rounded too ("512.3847561/h" is not a number humans read). */
-function fmtTokens(n: number): string {
-  if (!Number.isFinite(n)) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(Math.round(n));
-}
-
-function TokenSection({ providerId }: { providerId: string }) {
-  const [entry, setEntry] = useState<TokensApiProvider | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/daemon/tokens")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((all: TokensApiProvider[]) => {
-        if (cancelled) return;
-        const found = all.find((p) => p.providerId === providerId);
-        // hide entirely when this provider's CLI writes no usable logs
-        if (found && found.windows.length > 0) setEntry(found);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [providerId]);
-
-  if (!entry) return null;
-
-  return (
-    <section className="mb-9">
-      <div className="font-mono text-[10px] tracking-[0.18em] uppercase text-ink-3 mb-4">
-        token ledger
-      </div>
-      <div className="space-y-3">
-        {entry.windows.map((w) => (
-          <div key={w.windowName} className="flex items-baseline justify-between gap-3">
-            <span className="font-mono text-[10px] tracking-[0.1em] uppercase text-ink-4 shrink-0">
-              {w.windowName}
-            </span>
-            <span className="font-mono text-[12px] text-ink tnum text-right">
-              {fmtTokens(w.consumedTokens)} used
-              {w.estimatedRemainingTokens !== null && (
-                <span className="text-ink-3"> · ≈{fmtTokens(w.estimatedRemainingTokens)} left</span>
-              )}
-              {w.burnRatePerHour !== null && (
-                <span className="text-ink-4"> · {fmtTokens(w.burnRatePerHour)}/h</span>
-              )}
-            </span>
-          </div>
-        ))}
-      </div>
-      <p className="font-serif italic text-[11px] text-ink-4 mt-3">
-        按会话日志统计；余量按当前用量百分比外推，是数量级估计。
-      </p>
-    </section>
-  );
-}
 
 function WindowRow({ snap }: { snap: LatestSnapshot }) {
   const usedPct = 100 - snap.remainingPct;
@@ -174,10 +98,6 @@ export function Drawer({ card, onClose }: DrawerProps) {
                 <WindowRow key={w.windowName} snap={w} />
               ))}
             </div>
-          </section>
-
-          <section>
-            <TokenSection providerId={card.providerId} />
           </section>
 
           <section>

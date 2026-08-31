@@ -4,9 +4,8 @@
  * On first boot the daemon generates a local CA (EC P-256, 10 years) and a
  * server certificate (EC P-256, 3 years) with macOS's bundled /usr/bin/openssl
  * into ~/.quota-watch/certs/. Clients pin the CA's SHA-256 fingerprint (never
- * a CA bundle, never CN/SAN trust) — the fingerprint is handed out by the
- * daemon itself via POST /pair/claim, the only channel a pairing device talks
- * to before it has any trust anchor.
+ * a CA bundle, never CN/SAN trust) — the fingerprint is logged at daemon
+ * startup, and the CA file itself is copied to remote machines out-of-band.
  */
 import { execFileSync } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
@@ -78,7 +77,7 @@ export function ensureTlsConfig(certsDir: string): TlsConfig {
   const sanFile = join(certsDir, "server-san.cnf");
 
   // CA expiry forces a CA regeneration, which changes the fingerprint every
-  // paired client pins — unavoidable, but it happens once a decade and only
+  // pinning client trusts — unavoidable, but it happens once a decade and only
   // in the last 30 days of the CA's life. A regenerated CA MUST take the
   // server cert with it — a server cert signed by the old CA fails validation
   // against the new one.
