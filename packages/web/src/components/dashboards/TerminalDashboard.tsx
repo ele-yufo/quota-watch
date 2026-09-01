@@ -3,7 +3,7 @@
 import type { CardData, LatestSnapshot } from "@/lib/types";
 import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
-import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
+import { levelOf, usedPct, type DashboardProps } from "./types";
 
 /**
  * Terminal theme — the dashboard IS a terminal. A window chrome + CRT scanlines,
@@ -80,7 +80,6 @@ export function TerminalDashboard({
   updatedAt,
   onSelect,
 }: DashboardProps) {
-  const atRisk = atRiskWindows(cards);
   const ago = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : null;
 
   return (
@@ -131,7 +130,6 @@ export function TerminalDashboard({
               </span>
               {ago !== null && daemon?.running && <span className="text-ink-4"> · updated {ago}s ago</span>}
               <span className="text-ink-4"> · {cards.length} channels</span>
-              {atRisk.length > 0 && <span className="text-vermillion"> · {atRisk.length} at risk</span>}
             </div>
 
             {!daemon?.running && (

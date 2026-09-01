@@ -24,10 +24,3 @@ export function levelOf(remainingPct: number): "ok" | "warn" | "low" {
   if (remainingPct < 30) return "warn";
   return "ok";
 }
-
-/** windows across all providers flagged critical (<10% remaining). */
-export function atRiskWindows(cards: CardData[]) {
-  return cards.flatMap((c) =>
-    c.windows.filter((w) => w.remainingPct < 10).map((w) => ({ card: c, window: w })),
-  );
-}

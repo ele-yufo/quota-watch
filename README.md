@@ -154,7 +154,7 @@ timestamp**, not the calendar month.
 ```
 quota-watch/
 ├── packages/core/    unified quota model (window kinds) + providers + scheduler
-│                     + alerter + daemon HTTPS API + CLI-credential reuse/refresh
+│                     + daemon HTTPS API + CLI-credential reuse/refresh
 ├── packages/cli/     status · config · dashboard · daemon · mcp (stdio server)
 ├── packages/web/     Next.js dashboard — 5 per-theme layouts, :3000
 └── deploy/mac/       launchd agents: daemon + web (+ optional frp tunnel)

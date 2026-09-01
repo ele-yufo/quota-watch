@@ -3,10 +3,9 @@
  *
  * Spawned by `quota-watch daemon start` via child_process.spawn().
  * Loads all providers from DB, creates a registry, starts the scheduler,
- * evaluates alert rules, serves the HTTP API (health/quota/poll — consumed
- * by the web dashboard and remote MCP clients), and logs to
- * ~/.quota-watch/daemon.log. Poll cadence + API binding come from
- * ~/.quota-watch/config.json.
+ * serves the HTTP API (health/quota/poll — consumed by the web dashboard
+ * and remote MCP clients), and logs to ~/.quota-watch/daemon.log. Poll
+ * cadence + API binding come from ~/.quota-watch/config.json.
  */
 
 import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -16,8 +15,6 @@ import {
   QuotaDB,
   QuotaScheduler,
   ProviderRegistry,
-  AlertEngine,
-  DiscordNotifier,
   loadAppConfig,
   ensureApiToken,
   ensureTlsConfig,
@@ -32,7 +29,6 @@ import {
   glmCnProvider,
   copilotProvider,
 } from '@quota-watch/core';
-import type { AlertNotifier, AlertMessage } from '@quota-watch/core';
 import type { Server } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpServer } from './mcp-server.js';
@@ -82,17 +78,6 @@ function fmtBytes(n: number): string {
   return n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.round(n / 1024)}KB`;
 }
 
-// ── Log-based notifier (always active) ─────────────────────────────────
-
-class LogNotifier implements AlertNotifier {
-  async send(message: AlertMessage): Promise<void> {
-    log('WARN',
-      `ALERT: ${message.provider} ${message.plan} — ${message.window.name} ` +
-      `at ${message.remainingPct.toFixed(1)}% remaining (threshold: ${message.thresholdPct}%)`
-    );
-  }
-}
-
 // ── Main ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -119,37 +104,16 @@ async function main(): Promise<void> {
   registry.register(grokProvider);
   log('INFO', `Registered providers: ${registry.list().join(', ')}`);
 
-  // Set up alert notifiers
-  const notifiers = new Map<string, AlertNotifier>();
-  notifiers.set('macos_notification', new LogNotifier()); // Log-based fallback
-
-  const discordWebhook = process.env.DISCORD_WEBHOOK_URL;
-  if (discordWebhook) {
-    notifiers.set('discord_webhook', new DiscordNotifier(discordWebhook));
-    log('INFO', 'Discord webhook notifier enabled');
-  }
-
-  const alertEngine = new AlertEngine(db, notifiers);
-
-  // Create scheduler with alert evaluation
   const scheduler = new QuotaScheduler({
     registry,
     db,
     baseIntervalMs: appConfig.poll.baseMs,
     activeIntervalMs: appConfig.poll.fastMs,
     idleIntervalMs: appConfig.poll.idleMs,
-    alertIntervalMs: appConfig.poll.fastMs,
-    onQuotaFetched: async (providerId, quota) => {
+    onQuotaFetched: (providerId, quota) => {
       db.recordPoll(providerId, 'ok');
       for (const window of quota.windows) {
         log('INFO', `[${providerId}] ${window.name}: ${window.used}/${window.total} ${window.unit} (${window.remainingPct.toFixed(1)}% remaining)`);
-      }
-
-      // Evaluate alert rules
-      try {
-        await alertEngine.evaluate(providerId, quota);
-      } catch (err) {
-        log('ERROR', `Alert evaluation failed for ${providerId}: ${err}`);
       }
     },
     // Poll failures were swallowed silently by the scheduler — log them
@@ -215,7 +179,7 @@ async function main(): Promise<void> {
   // (87MB → ~25-30MB). WAL must be checkpointed first or VACUUM has nothing
   // to shrink.
   try {
-    db.performMaintenance(30, 90);
+    db.performMaintenance(30);
     const before = statSync(DB_PATH).size;
     db.vacuum();
     const after = statSync(DB_PATH).size;
@@ -236,11 +200,11 @@ async function main(): Promise<void> {
     }
   }
 
-  // Hourly housekeeping: prune snapshots/alerts, checkpoint WAL, incremental
-  // vacuum. Unref'd so it never keeps the process alive.
+  // Hourly housekeeping: prune snapshots, checkpoint WAL. Unref'd so it never
+  // keeps the process alive.
   setInterval(() => {
     try {
-      db.performMaintenance(30, 90);
+      db.performMaintenance(30);
       log('INFO', 'Hourly maintenance complete');
     } catch (err) {
       log('ERROR', `Hourly maintenance failed: ${err instanceof Error ? err.message : err}`);

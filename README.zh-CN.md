@@ -132,7 +132,7 @@ OpenCode Go 窗口语义(服务端定义):5h 是真滚动窗口;**weekly 周一 
 ```
 quota-watch/
 ├── packages/core/    统一配额模型(窗口 kind)+ providers + 调度器
-│                     + 告警器 + daemon HTTP API + CLI 凭据复用/刷新
+│                     + daemon HTTP API + CLI 凭据复用/刷新
 ├── packages/cli/     status · config · dashboard · daemon · mcp(stdio server)
 ├── packages/web/     Next.js 仪表盘 —— 五套按主题的布局,:3000
 └── deploy/mac/       launchd agent:daemon + web(+ 可选 frp 隧道)

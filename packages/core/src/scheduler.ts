@@ -15,7 +15,6 @@ export interface SchedulerConfig {
   baseIntervalMs?: number;   // default 15_000
   activeIntervalMs?: number; // default 10_000 (usage moving)
   idleIntervalMs?: number;   // default 60_000 (3+ unchanged polls)
-  alertIntervalMs?: number;  // default 10_000 (window under alert threshold)
 }
 
 // Near-realtime defaults: the dashboard should reflect a burst of usage in
@@ -24,7 +23,6 @@ export interface SchedulerConfig {
 const DEFAULT_BASE_MS = 15_000;
 const DEFAULT_ACTIVE_MS = 10_000;
 const DEFAULT_IDLE_MS = 60_000;
-const DEFAULT_ALERT_MS = 10_000;
 const RECONCILE_MS = 30_000;
 
 // ── Per-provider tracking state ────────────────────────────────────────
@@ -40,8 +38,8 @@ interface ProviderState {
 
 export class QuotaScheduler {
   private readonly config: Required<
-    Pick<SchedulerConfig, 'baseIntervalMs' | 'activeIntervalMs' | 'idleIntervalMs' | 'alertIntervalMs'>
-  > & Omit<SchedulerConfig, 'baseIntervalMs' | 'activeIntervalMs' | 'idleIntervalMs' | 'alertIntervalMs'>;
+    Pick<SchedulerConfig, 'baseIntervalMs' | 'activeIntervalMs' | 'idleIntervalMs'>
+  > & Omit<SchedulerConfig, 'baseIntervalMs' | 'activeIntervalMs' | 'idleIntervalMs'>;
 
   private readonly states = new Map<string, ProviderState>();
   private running = false;
@@ -56,7 +54,6 @@ export class QuotaScheduler {
       baseIntervalMs: config.baseIntervalMs ?? DEFAULT_BASE_MS,
       activeIntervalMs: config.activeIntervalMs ?? DEFAULT_ACTIVE_MS,
       idleIntervalMs: config.idleIntervalMs ?? DEFAULT_IDLE_MS,
-      alertIntervalMs: config.alertIntervalMs ?? DEFAULT_ALERT_MS,
     };
   }
 
@@ -246,7 +243,7 @@ export class QuotaScheduler {
     // Determine new interval based on adaptive logic
     const newInterval = this.clampInterval(
       providerId,
-      this.computeInterval(providerId, state, quota),
+      this.computeInterval(state),
     );
 
     // Only reschedule if interval changed
@@ -261,16 +258,7 @@ export class QuotaScheduler {
     }
   }
 
-  private computeInterval(
-    providerId: string,
-    state: ProviderState,
-    quota: ProviderQuota,
-  ): number {
-    // Priority 1: Alert — if any window is below threshold, poll fast
-    if (this.hasActiveAlert(providerId, quota)) {
-      return this.config.alertIntervalMs;
-    }
-
+  private computeInterval(state: ProviderState): number {
     const values = state.lastUsedValues;
 
     // Need at least 2 data points to detect change
@@ -278,14 +266,14 @@ export class QuotaScheduler {
       return this.config.baseIntervalMs;
     }
 
-    // Priority 2: Active — usage changed since last poll
+    // Priority 1: Active — usage changed since last poll
     const lastVal = values[values.length - 1]!;
     const prevVal = values[values.length - 2]!;
     if (lastVal !== prevVal) {
       return this.config.activeIntervalMs;
     }
 
-    // Priority 3: Idle — no change for 3 consecutive polls
+    // Priority 2: Idle — no change for 3 consecutive polls
     if (
       values.length >= 3 &&
       values[values.length - 1] === values[values.length - 2] &&
@@ -296,17 +284,5 @@ export class QuotaScheduler {
 
     // Default
     return this.config.baseIntervalMs;
-  }
-
-  private hasActiveAlert(providerId: string, quota: ProviderQuota): boolean {
-    const rules = this.config.db.getAlertRules(providerId);
-    for (const rule of rules) {
-      if (!rule.enabled) continue;
-      const matchingWindow = quota.windows.find((w) => w.name === rule.windowName);
-      if (matchingWindow && matchingWindow.remainingPct < rule.thresholdPct) {
-        return true;
-      }
-    }
-    return false;
   }
 }

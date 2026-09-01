@@ -27,7 +27,7 @@ interface KimiUsageResponse {
 // Kimi reports raw unit counts (limit/used/remaining), not percentages —
 // keep the raw totals so the UI can show absolute usage.
 // Unparseable/missing numbers must NOT degrade to limit=0 → remainingPct=0
-// (a fake "exhausted" that fires alerts) or NaN (crashes the NOT NULL insert).
+// (a fake "exhausted") or NaN (crashes the NOT NULL insert).
 // A window we can't measure honestly is a window we don't report.
 function toWindow(name: string, kind: WindowKind, d: KimiUsageItem): QuotaWindow | null {
   const limit = Number(d.limit);

@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import type { CardData, LatestSnapshot } from "@/lib/types";
 import { InkBand } from "./InkBand";
-import { AlertRuleList } from "./AlertRuleList";
 import {
   formatResetCountdown,
   formatUsage,
@@ -98,10 +97,6 @@ export function Drawer({ card, onClose }: DrawerProps) {
                 <WindowRow key={w.windowName} snap={w} />
               ))}
             </div>
-          </section>
-
-          <section>
-            <AlertRuleList providerId={card.providerId} windows={card.windows} />
           </section>
         </div>
       </aside>

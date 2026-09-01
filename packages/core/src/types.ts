@@ -36,19 +36,6 @@ export interface ProviderQuota {
   error?: string;
 }
 
-/** Alert rule definition */
-export interface AlertRule {
-  id: string;
-  provider: string;
-  windowName: string;
-  thresholdPct: number;
-  channels: AlertChannel[];
-  cooldownMs: number;
-  enabled: boolean;
-}
-
-export type AlertChannel = 'macos_notification' | 'discord_webhook';
-
 /** Historical usage data point */
 export interface UsageSnapshot {
   timestamp: string;

@@ -7,8 +7,10 @@ import { QuotaDB } from '../src/db.js';
 
 /**
  * v2 migration: legacy DBs (user_version 0, no window_kind column) must come
- * out with the column added, legacy OpenCode window names normalized in both
- * snapshots and alert rules, and kinds backfilled from names.
+ * out with the column added, legacy OpenCode window names normalized in
+ * snapshots, and kinds backfilled from names. The v6 migration additionally
+ * drops the removed alerting feature's tables (the seed below includes them
+ * because a real pre-v6 DB has them).
  */
 
 let dir: string;
@@ -74,9 +76,11 @@ describe('QuotaDB v2 migration', () => {
     expect(byName.get('weekly (7d)')!.windowKind).toBe('week');
     expect(byName.get('monthly (1mo)')!.windowKind).toBe('month');
 
-    // alert rules follow the rename so they stay attached
-    const rules = db.getAlertRules('oc-1');
-    expect(rules[0]!.windowName).toBe('weekly (7d)');
+    // v6 drops the removed alerting feature's tables outright
+    const tables = (db as unknown as { db: Database.Database }).db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'alert_%'")
+      .all();
+    expect(tables).toHaveLength(0);
 
     // untouched provider windows just get kinds backfilled
     const claude = db.getLatestSnapshots('cl-1');

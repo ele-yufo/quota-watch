@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QuotaDB } from "../src/db.js";
-import type { ProviderConfig, UsageSnapshot, AlertRule } from "../src/db.js";
+import type { ProviderConfig, UsageSnapshot } from "../src/db.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unlinkSync, existsSync } from "node:fs";
@@ -46,17 +46,6 @@ describe("QuotaDB", () => {
     used: 50,
     total: 100,
     unit: "requests",
-    ...overrides,
-  });
-
-  const makeRule = (overrides?: Partial<AlertRule>): AlertRule => ({
-    id: "rule-1",
-    provider: "openai-main",
-    windowName: "daily",
-    thresholdPct: 20,
-    channels: ["slack", "email"],
-    cooldownMs: 3600000,
-    enabled: true,
     ...overrides,
   });
 
@@ -116,14 +105,12 @@ describe("QuotaDB", () => {
     expect(db.getProvider("openai-main")).toBeNull();
   });
 
-  it("deletes a provider with snapshots, alert rules, alert history and poll state (FK children first)", () => {
+  it("deletes a provider with snapshots and poll state (FK children first)", () => {
     // Regression: the old single-statement delete threw a FK constraint error
     // for any provider that had actually collected data — which is every real
     // provider — making the setup page's remove button silently useless.
     db.upsertProvider(makeProvider());
     db.insertSnapshot(makeSnapshot(), "openai-main");
-    db.addAlertRule(makeRule());
-    db.recordAlert("rule-1", "openai-main", "daily", 15, "test alert");
     db.recordPoll("openai-main", "ok");
 
     db.deleteProvider("openai-main");
@@ -131,17 +118,6 @@ describe("QuotaDB", () => {
     expect(db.getProvider("openai-main")).toBeNull();
     expect(db.getLatestSnapshots()).toHaveLength(0);
     expect(db.getPollState("openai-main")).toBeNull();
-    expect(db.getAlertRules("openai-main")).toHaveLength(0);
-  });
-
-  it("deletes an alert rule that has fired history (FK child first)", () => {
-    db.upsertProvider(makeProvider());
-    db.addAlertRule(makeRule());
-    db.recordAlert("rule-1", "openai-main", "daily", 15, "test alert");
-
-    db.deleteAlertRule("rule-1");
-
-    expect(db.getAlertRules("openai-main")).toHaveLength(0);
   });
 
   // ── Snapshot insert & query ──────────────────────────────────────
@@ -186,96 +162,6 @@ describe("QuotaDB", () => {
     expect(db.getSnapshots("p2", "daily", "2000-01-01")).toHaveLength(1);
   });
 
-  // ── Alert rule CRUD ──────────────────────────────────────────────
-
-  it("adds and retrieves alert rules", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-
-    const rule = makeRule();
-    db.addAlertRule(rule);
-
-    const rules = db.getAlertRules();
-    expect(rules).toHaveLength(1);
-    expect(rules[0]).toEqual(rule);
-  });
-
-  it("retrieves rules filtered by provider", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-    db.upsertProvider(makeProvider({ id: "anthropic-main", provider: "anthropic", displayName: "Anthropic" }));
-
-    db.addAlertRule(makeRule({ id: "r1", provider: "openai-main" }));
-    db.addAlertRule(makeRule({ id: "r2", provider: "anthropic-main" }));
-
-    const filtered = db.getAlertRules("openai-main");
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0].id).toBe("r1");
-  });
-
-  it("deletes an alert rule", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-    db.addAlertRule(makeRule());
-    db.deleteAlertRule("rule-1");
-    expect(db.getAlertRules()).toHaveLength(0);
-  });
-
-  it("upserts alert rule (INSERT OR REPLACE)", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-    db.addAlertRule(makeRule({ thresholdPct: 20 }));
-    db.addAlertRule(makeRule({ thresholdPct: 10 }));
-
-    const rules = db.getAlertRules();
-    expect(rules).toHaveLength(1);
-    expect(rules[0].thresholdPct).toBe(10);
-  });
-
-  // ── Alert cooldown logic ─────────────────────────────────────────
-
-  // Helper: ensure rule-1 exists for FK references
-  function ensureRule1() {
-    db.upsertProvider(makeProvider()); // creates "openai-main"
-    db.addAlertRule(makeRule({ id: "rule-1" })); // references "openai-main"
-  }
-
-  it("allows alert when no prior history exists", () => {
-    ensureRule1();
-    expect(db.shouldFireAlert("rule-1", 3600000)).toBe(true);
-  });
-
-  it("blocks alert within cooldown window", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-    ensureRule1();
-    db.recordAlert("rule-1", "openai-main", "daily", 15, "Quota at 15%");
-    expect(db.shouldFireAlert("rule-1", 3600000)).toBe(false);
-  });
-
-  it("allows alert after cooldown expires", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-    ensureRule1();
-    // Record an alert now
-    db.recordAlert("rule-1", "openai-main", "daily", 10, "old alert");
-    // shouldFireAlert should return false immediately
-    expect(db.shouldFireAlert("rule-1", 3600000)).toBe(false);
-    // But with cooldown of 0 it should fire (no cooldown)
-    expect(db.shouldFireAlert("rule-1", 0)).toBe(true);
-  });
-
-  it("records alerts correctly", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-    ensureRule1();
-
-    // No prior alerts => should fire
-    expect(db.shouldFireAlert("rule-1", 3600000)).toBe(true);
-
-    db.recordAlert("rule-1", "openai-main", "daily", 8, "Critical: 8% remaining");
-
-    // After recording, should be blocked by cooldown
-    expect(db.shouldFireAlert("rule-1", 3600000)).toBe(false);
-
-    // Multiple records still block
-    db.recordAlert("rule-1", "openai-main", "daily", 5, "Even lower");
-    expect(db.shouldFireAlert("rule-1", 3600000)).toBe(false);
-  });
-
   // ── Data governance: change-only writes + maintenance ─────────────
 
   it("skips a snapshot identical to the latest row", () => {
@@ -304,29 +190,13 @@ describe("QuotaDB", () => {
     expect(db.insertSnapshot({ ...snap, timestamp: "2026-07-01T10:05:00.000Z" }, "openai-main")).toBe(false);
   });
 
-  it("cleanupAlertHistory prunes only old rows", () => {
-    db.upsertProvider(makeProvider({ id: "openai-main" }));
-    db.addAlertRule(makeRule());
-    // 写入一条 120 天前的记录（拨时钟），再写一条当前记录。
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(Date.now() - 120 * 86_400_000));
-    db.recordAlert("rule-1", "openai-main", "daily", 8, "old");
-    vi.useRealTimers();
-    db.recordAlert("rule-1", "openai-main", "daily", 8, "fresh");
-
-    const removed = db.cleanupAlertHistory(90);
-    expect(removed).toBe(1);
-  });
-
   it("performMaintenance prunes old data and keeps the DB usable", () => {
     db.upsertProvider(makeProvider({ id: "openai-main" }));
-    db.addAlertRule(makeRule());
     const oldSnap = makeSnapshot({ timestamp: new Date(Date.now() - 45 * 86_400_000).toISOString(), used: 10 });
     db.insertSnapshot(oldSnap, "openai-main");
     db.insertSnapshot(makeSnapshot({ used: 20 }), "openai-main");
-    db.recordAlert("rule-1", "openai-main", "daily", 8, "old alert");
 
-    db.performMaintenance(30, 90);
+    db.performMaintenance(30);
     expect(db.getSnapshots("openai-main", "daily", "2000-01-01T00:00:00.000Z")).toHaveLength(1);
   });
 });

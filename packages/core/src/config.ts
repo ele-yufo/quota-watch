@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 
 export interface PollConfig {
-  /** cadence while usage is moving or a window is under alert threshold */
+  /** cadence while usage is moving */
   fastMs: number;
   /** default cadence */
   baseMs: number;

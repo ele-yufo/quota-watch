@@ -74,7 +74,7 @@ function pidIsWorker(pid: number): boolean {
 /**
  * On macOS the daemon is normally a launchd job (io.quotawatch.daemon,
  * KeepAlive=true). `daemon start` there spawns a SECOND worker — double
- * polling, duplicate alerts, and two writers on the same SQLite DB.
+ * polling and two writers on the same SQLite DB.
  */
 function launchdJobLoaded(): boolean {
   if (process.platform !== 'darwin') return false;

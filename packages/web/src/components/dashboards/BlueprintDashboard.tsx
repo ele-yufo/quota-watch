@@ -3,7 +3,7 @@
 import type { CardData, LatestSnapshot } from "@/lib/types";
 import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
-import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
+import { levelOf, usedPct, type DashboardProps } from "./types";
 
 /**
  * Blueprint theme — a technical drawing sheet. Each window is a schematic gauge
@@ -107,7 +107,6 @@ export function BlueprintDashboard({
   updatedAt,
   onSelect,
 }: DashboardProps) {
-  const atRisk = atRiskWindows(cards);
   const ago = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : null;
 
   return (
@@ -130,8 +129,6 @@ export function BlueprintDashboard({
             <span>{ago !== null ? `${ago}S AGO` : "—"}</span>
             <span className="text-ink-4">CHANNELS</span>
             <span>{String(cards.length).padStart(2, "0")}</span>
-            <span className="text-ink-4">AT RISK</span>
-            <span className={atRisk.length > 0 ? "text-vermillion" : ""}>{String(atRisk.length).padStart(2, "0")}</span>
           </div>
         </div>
         <div className="flex items-center gap-3 px-5 py-2 border-t border-ink font-mono text-[10px] tracking-[0.12em] text-ink-4">

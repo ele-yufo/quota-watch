@@ -19,9 +19,6 @@ function ago(ts: number): string {
  */
 export function Header({ cards, daemon, updatedAt }: HeaderProps) {
   const total = cards.length;
-  const atRisk = cards.filter(
-    (c) => c.primary != null && c.primary.remainingPct < 10,
-  ).length;
 
   return (
     <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1 pb-3 mb-4 border-b-[3px] border-ink">
@@ -43,7 +40,6 @@ export function Header({ cards, daemon, updatedAt }: HeaderProps) {
       )}
       <div className="font-mono text-[11px] tracking-[0.14em] uppercase text-ink-2 text-right ml-auto whitespace-nowrap">
         {total} channel{total !== 1 ? "s" : ""}
-        {atRisk > 0 && <span className="text-vermillion"> · {atRisk} at risk</span>}
       </div>
     </header>
   );

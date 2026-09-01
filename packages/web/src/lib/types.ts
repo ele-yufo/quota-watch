@@ -78,17 +78,6 @@ export interface DaemonStatus {
   }>;
 }
 
-/** Alert rule (GET/POST /api/alert). */
-export interface AlertRule {
-  id: string;
-  provider: string;
-  windowName: string;
-  thresholdPct: number;
-  channels: string[];
-  cooldownMs: number;
-  enabled: boolean;
-}
-
 /** A provider card's render model. */
 export interface CardData {
   providerId: string;

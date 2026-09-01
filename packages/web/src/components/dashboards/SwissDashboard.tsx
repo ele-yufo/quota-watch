@@ -3,12 +3,12 @@
 import type { CardData, LatestSnapshot } from "@/lib/types";
 import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
-import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
+import { levelOf, usedPct, type DashboardProps } from "./types";
 
 /**
  * Swiss theme — International Typographic Style. A strict modular grid, heavy
  * sans headline, hairline rules, tabular figures, horizontal bar charts, and a
- * single red accent reserved for at-risk. Systematic and precise.
+ * single red accent reserved for low quota. Systematic and precise.
  */
 
 const LEVEL_VAR: Record<"ok" | "warn" | "low", string> = {
@@ -79,7 +79,6 @@ export function SwissDashboard({
   updatedAt,
   onSelect,
 }: DashboardProps) {
-  const atRisk = atRiskWindows(cards);
   const ago = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : null;
 
   return (
@@ -95,7 +94,6 @@ export function SwissDashboard({
           </span>
           {ago !== null && daemon?.running && <span className="text-ink-4">UPDATED {ago}S AGO</span>}
           <span className="text-ink-4">{String(cards.length).padStart(2, "0")} CHANNELS</span>
-          {atRisk.length > 0 && <span className="text-vermillion">{atRisk.length} AT RISK</span>}
           <span className="ml-auto text-ink-4 hidden sm:inline">FIG. 01 — CONSUMPTION</span>
         </div>
       </header>

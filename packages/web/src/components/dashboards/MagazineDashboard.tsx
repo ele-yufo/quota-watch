@@ -2,12 +2,11 @@
 
 import { Header } from "@/components/Header";
 import { ProviderRow } from "@/components/ProviderRow";
-import { AlertBar } from "@/components/AlertBar";
 import type { DashboardProps } from "./types";
 
 /**
- * Magazine theme — the original editorial broadsheet: a masthead, a ruled list
- * of provider rows with ink bands, and a bottom at-risk strip. Text-forward.
+ * Magazine theme — the original editorial broadsheet: a masthead and a ruled
+ * list of provider rows with ink bands. Text-forward.
  */
 export function MagazineDashboard({
   cards,
@@ -48,8 +47,6 @@ export function MagazineDashboard({
           daemon 已运行，等待第一轮采集（约 10 秒）…
         </p>
       )}
-
-      <AlertBar cards={cards} onOpen={onSelect} />
     </main>
   );
 }

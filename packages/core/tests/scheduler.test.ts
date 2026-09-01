@@ -4,7 +4,7 @@ import type { SchedulerConfig } from '../src/scheduler.js';
 import type { ProviderAdapter } from '../src/providers/types.js';
 import type { ProviderRegistry } from '../src/providers/index.js';
 import type { QuotaDB } from '../src/db.js';
-import type { ProviderConfig, ProviderQuota, AlertRule } from '../src/types.js';
+import type { ProviderConfig, ProviderQuota } from '../src/types.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -67,7 +67,6 @@ function makeMockRegistry(adapter: ProviderAdapter): ProviderRegistry {
 
 function makeMockDb(
   providers: ProviderConfig[] = [],
-  alertRules: AlertRule[] = [],
 ): QuotaDB & { snapshots: Array<{ snap: unknown; providerId: string }> } {
   const db = {
     snapshots: [] as Array<{ snap: unknown; providerId: string }>,
@@ -77,7 +76,6 @@ function makeMockDb(
       db.snapshots.push({ snap, providerId });
       return true; // change-only writes: mock always "changed"
     },
-    getAlertRules(_providerId?: string) { return alertRules; },
   } as unknown as QuotaDB & { snapshots: Array<{ snap: unknown; providerId: string }> };
   return db;
 }
@@ -260,40 +258,6 @@ describe('QuotaScheduler', () => {
     scheduler.stop();
   });
 
-  // ── Adaptive interval: alert ─────────────────────────────────────
-
-  it('switches to alertIntervalMs when alert rule is triggered', async () => {
-    // Window with 90% used → remainingPct = 10%, below 20% threshold
-    const quota = makeQuota(90, 100);
-    const adapter = makeMockAdapter([quota, quota]);
-    const registry = makeMockRegistry(adapter);
-
-    const alertRule: AlertRule = {
-      id: 'rule-1',
-      provider: 'test-provider',
-      windowName: 'daily',
-      thresholdPct: 20,
-      channels: ['macos_notification'],
-      cooldownMs: 3600000,
-      enabled: true,
-    };
-    const db = makeMockDb([makeProviderConfig()], [alertRule]);
-
-    const scheduler = new QuotaScheduler({
-      registry,
-      db,
-      baseIntervalMs: 1000,
-      alertIntervalMs: 200,
-    });
-    scheduler.start();
-
-    // First poll — alert condition → alertInterval
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(scheduler.getIntervalMs('test-provider')).toBe(200);
-
-    scheduler.stop();
-  });
-
   // ── onQuotaFetched callback ──────────────────────────────────────
 
   it('calls onQuotaFetched for each successful poll', async () => {
@@ -458,47 +422,6 @@ describe('QuotaScheduler', () => {
     expect(db.snapshots).toHaveLength(2);
     expect((db.snapshots[0]!.snap as { windowName: string }).windowName).toBe('daily');
     expect((db.snapshots[1]!.snap as { windowName: string }).windowName).toBe('monthly');
-  });
-
-  // ── Alert takes priority over active/idle ────────────────────────
-
-  it('alert interval takes priority over active interval', async () => {
-    // Usage changes AND alert is below threshold
-    const quota1 = makeQuota(90, 100); // remainingPct=10%, below threshold
-    const quota2 = makeQuota(95, 100); // changed usage + still alerting
-
-    const adapter = makeMockAdapter([quota1, quota2]);
-    const registry = makeMockRegistry(adapter);
-
-    const alertRule: AlertRule = {
-      id: 'rule-1',
-      provider: 'test-provider',
-      windowName: 'daily',
-      thresholdPct: 20,
-      channels: ['macos_notification'],
-      cooldownMs: 3600000,
-      enabled: true,
-    };
-    const db = makeMockDb([makeProviderConfig()], [alertRule]);
-
-    const scheduler = new QuotaScheduler({
-      registry,
-      db,
-      baseIntervalMs: 1000,
-      activeIntervalMs: 500,
-      alertIntervalMs: 200,
-    });
-    scheduler.start();
-
-    // Poll 1 — alert triggered → alertInterval (200ms)
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(scheduler.getIntervalMs('test-provider')).toBe(200);
-
-    // Poll 2 — usage changed AND alert still active → alert wins
-    await vi.advanceTimersByTimeAsync(200);
-    expect(scheduler.getIntervalMs('test-provider')).toBe(200);
-
-    scheduler.stop();
   });
 
   // ── stop() clears timers so no more polls fire ───────────────────

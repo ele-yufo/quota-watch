@@ -3,7 +3,7 @@
 import type { CardData } from "@/lib/types";
 import { windowKindLabel } from "@/lib/types";
 import { formatResetCountdown } from "@/lib/format";
-import { atRiskWindows, levelOf, usedPct, type DashboardProps } from "./types";
+import { levelOf, usedPct, type DashboardProps } from "./types";
 
 /**
  * OLED theme — pure black, maximal restraint. A grid of provider tiles, each led
@@ -95,7 +95,6 @@ export function OledDashboard({
   updatedAt,
   onSelect,
 }: DashboardProps) {
-  const atRisk = atRiskWindows(cards);
   const ago = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : null;
 
   return (
@@ -108,7 +107,6 @@ export function OledDashboard({
           </span>
           {ago !== null && daemon?.running && ` · ${ago}s ago`}
           {` · ${cards.length} ch`}
-          {atRisk.length > 0 && <span className="text-vermillion"> · {atRisk.length} at risk</span>}
         </div>
       </header>
 

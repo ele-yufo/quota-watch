@@ -6,9 +6,6 @@ export { codexProvider } from './providers/codex.js';
 export { QuotaDB, type LatestSnapshot } from './db.js';
 export { QuotaScheduler } from './scheduler.js';
 export type { SchedulerConfig } from './scheduler.js';
-export { AlertEngine } from './alerter.js';
-export type { AlertNotifier, AlertMessage } from './alerter.js';
-export { DiscordNotifier, buildDiscordPayload } from './notifiers/discord.js';
 export { predictConsumption } from './predictor.js';
 export {
   loadAppConfig,

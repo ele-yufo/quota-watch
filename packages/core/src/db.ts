@@ -2,10 +2,10 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import type { AlertRule, AlertChannel, ProviderConfig, UsageSnapshot } from "./types.js";
+import type { ProviderConfig, UsageSnapshot } from "./types.js";
 import { classifyWindowKind, type WindowKind } from "./windows.js";
 
-export type { ProviderConfig, UsageSnapshot, AlertRule } from "./types.js";
+export type { ProviderConfig, UsageSnapshot } from "./types.js";
 
 /** One row of getLatestSnapshots — latest snapshot per provider×window. */
 export interface LatestSnapshot {
@@ -46,35 +46,14 @@ const BASE_TABLES = [
     reset_at TEXT,
     FOREIGN KEY (provider_id) REFERENCES providers(id)
   )`,
-  `CREATE TABLE IF NOT EXISTS alert_rules (
-    id TEXT PRIMARY KEY,
-    provider_id TEXT NOT NULL,
-    window_name TEXT NOT NULL,
-    threshold_pct REAL NOT NULL,
-    channels TEXT NOT NULL,
-    cooldown_ms INTEGER NOT NULL DEFAULT 3600000,
-    enabled INTEGER DEFAULT 1,
-    FOREIGN KEY (provider_id) REFERENCES providers(id)
-  )`,
-  `CREATE TABLE IF NOT EXISTS alert_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rule_id TEXT NOT NULL,
-    fired_at TEXT NOT NULL,
-    provider_id TEXT NOT NULL,
-    window_name TEXT NOT NULL,
-    remaining_pct REAL NOT NULL,
-    message TEXT NOT NULL,
-    FOREIGN KEY (rule_id) REFERENCES alert_rules(id)
-  )`,
   `CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON quota_snapshots(timestamp)`,
   `CREATE INDEX IF NOT EXISTS idx_snapshots_provider ON quota_snapshots(provider_id, window_name, timestamp)`,
-  `CREATE INDEX IF NOT EXISTS idx_alerts_rule ON alert_history(rule_id, fired_at)`,
 ];
 
 /**
  * Legacy → canonical window names, written before the naming convention
- * existed. Applied to snapshots AND alert rules so history + rules stay
- * attached to their windows across the rename.
+ * existed. Applied to snapshots so history stays attached to its windows
+ * across the rename.
  */
 const LEGACY_WINDOW_RENAMES: Record<string, string> = {
   "OpenCode Go 5h (5h)": "session (5h)",
@@ -143,6 +122,14 @@ export class QuotaDB {
       this.db.exec(`DROP TABLE IF EXISTS ingest_state`);
       this.db.pragma("user_version = 5");
     }
+
+    if (version < 6) {
+      // Alerting feature removed (rules + fire history + notifiers). Child
+      // first: alert_history references alert_rules and foreign_keys is ON.
+      this.db.exec(`DROP TABLE IF EXISTS alert_history`);
+      this.db.exec(`DROP TABLE IF EXISTS alert_rules`);
+      this.db.pragma("user_version = 6");
+    }
   }
 
   /** v3: token-usage ledger fed by CLI session logs (token monitoring). */
@@ -179,12 +166,8 @@ export class QuotaDB {
     const renameSnap = this.db.prepare(
       `UPDATE quota_snapshots SET window_name = ? WHERE window_name = ?`,
     );
-    const renameRule = this.db.prepare(
-      `UPDATE alert_rules SET window_name = ? WHERE window_name = ?`,
-    );
     for (const [legacy, canonical] of Object.entries(LEGACY_WINDOW_RENAMES)) {
       renameSnap.run(canonical, legacy);
-      renameRule.run(canonical, legacy);
     }
 
     const names = this.db
@@ -207,24 +190,14 @@ export class QuotaDB {
     return result.changes;
   }
 
-  /** Delete alert history older than the given number of days. */
-  cleanupAlertHistory(daysToKeep: number = 90): number {
-    const cutoff = new Date(Date.now() - daysToKeep * 86_400_000).toISOString();
-    const result = this.db
-      .prepare('DELETE FROM alert_history WHERE fired_at < ?')
-      .run(cutoff);
-    return result.changes;
-  }
-
   /**
-   * Hourly housekeeping: prune snapshots + alert history, then checkpoint the
+   * Hourly housekeeping: prune snapshots, then checkpoint the
    * WAL. Note: `incremental_vacuum` is intentionally NOT called — it's a no-op
    * unless `auto_vacuum=INCREMENTAL` was set before table creation, which this
    * DB never did; space is reclaimed by the one-off `vacuum()` at startup.
    */
-  performMaintenance(daysToKeepSnapshots: number = 30, daysToKeepAlerts: number = 90): void {
+  performMaintenance(daysToKeepSnapshots: number = 30): void {
     this.cleanupOldData(daysToKeepSnapshots);
-    this.cleanupAlertHistory(daysToKeepAlerts);
     this.db.pragma('wal_checkpoint(TRUNCATE)');
   }
 
@@ -296,13 +269,8 @@ export class QuotaDB {
 
   deleteProvider(id: string): void {
     // FK children must go first (foreign_keys = ON, no ON DELETE CASCADE):
-    // alert_history → alert_rules → quota_snapshots, plus the un-FK'd
-    // provider_poll_state.
+    // quota_snapshots, plus the un-FK'd provider_poll_state.
     this.db.transaction(() => {
-      this.db
-        .prepare("DELETE FROM alert_history WHERE rule_id IN (SELECT id FROM alert_rules WHERE provider_id = ?)")
-        .run(id);
-      this.db.prepare("DELETE FROM alert_rules WHERE provider_id = ?").run(id);
       this.db.prepare("DELETE FROM quota_snapshots WHERE provider_id = ?").run(id);
       this.db.prepare("DELETE FROM provider_poll_state WHERE provider_id = ?").run(id);
       this.db.prepare("DELETE FROM providers WHERE id = ?").run(id);
@@ -443,88 +411,5 @@ export class QuotaDB {
     return typeof r.window_kind === "string" && r.window_kind
       ? (r.window_kind as WindowKind)
       : classifyWindowKind(r.window_name as string);
-  }
-
-  // ── Alert rule CRUD ────────────────────────────────────────────────
-
-  addAlertRule(rule: AlertRule): void {
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO alert_rules (id, provider_id, window_name, threshold_pct, channels, cooldown_ms, enabled)
-         VALUES (@id, @providerId, @windowName, @thresholdPct, @channels, @cooldownMs, @enabled)`
-      )
-      .run({
-        id: rule.id,
-        providerId: rule.provider,
-        windowName: rule.windowName,
-        thresholdPct: rule.thresholdPct,
-        channels: JSON.stringify(rule.channels),
-        cooldownMs: rule.cooldownMs,
-        enabled: rule.enabled ? 1 : 0,
-      });
-  }
-
-  getAlertRules(providerId?: string): AlertRule[] {
-    let sql = "SELECT * FROM alert_rules";
-    const params: unknown[] = [];
-    if (providerId) {
-      sql += " WHERE provider_id = ?";
-      params.push(providerId);
-    }
-    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
-    return rows.map((r) => ({
-      id: r.id as string,
-      provider: r.provider_id as string,
-      windowName: r.window_name as string,
-      thresholdPct: r.threshold_pct as number,
-      channels: JSON.parse(r.channels as string) as AlertChannel[],
-      cooldownMs: r.cooldown_ms as number,
-      enabled: r.enabled === 1,
-    }));
-  }
-
-  deleteAlertRule(id: string): void {
-    this.db.transaction(() => {
-      this.db.prepare("DELETE FROM alert_history WHERE rule_id = ?").run(id);
-      this.db.prepare("DELETE FROM alert_rules WHERE id = ?").run(id);
-    })();
-  }
-
-  // ── Alert history / cooldown ───────────────────────────────────────
-
-  shouldFireAlert(ruleId: string, cooldownMs: number): boolean {
-    const row = this.db
-      .prepare(
-        `SELECT fired_at FROM alert_history
-         WHERE rule_id = ?
-         ORDER BY fired_at DESC
-         LIMIT 1`
-      )
-      .get(ruleId) as { fired_at: string } | undefined;
-    if (!row) return true;
-    const lastFired = new Date(row.fired_at).getTime();
-    return Date.now() - lastFired >= cooldownMs;
-  }
-
-  recordAlert(
-    ruleId: string,
-    providerId: string,
-    windowName: string,
-    remainingPct: number,
-    message: string,
-  ): void {
-    this.db
-      .prepare(
-        `INSERT INTO alert_history (rule_id, fired_at, provider_id, window_name, remaining_pct, message)
-         VALUES (@ruleId, @firedAt, @providerId, @windowName, @remainingPct, @message)`
-      )
-      .run({
-        ruleId,
-        firedAt: new Date().toISOString(),
-        providerId,
-        windowName,
-        remainingPct,
-        message,
-      });
   }
 }
