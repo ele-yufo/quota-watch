@@ -4,6 +4,7 @@ import type { CardData, LatestSnapshot } from "@/lib/types";
 import { windowKindLabel } from "@/lib/types";
 import { InkBand } from "./InkBand";
 import {
+  formatBalance,
   formatResetCountdown,
   INK_TEXT,
   statusFromRemaining,
@@ -26,8 +27,10 @@ import {
 
 const INLINE_WINDOWS = 4;
 
-/** Compact inline window cell: kind chip + used% + small ink band + reset. */
+/** Compact inline window cell: kind chip + used% + small ink band + reset.
+ *  Balance windows show the remaining amount instead of a percentage. */
 function WindowCell({ snap }: { snap: LatestSnapshot }) {
+  const isBalance = snap.windowKind === "balance";
   const usedPct = 100 - snap.remainingPct;
   const level = statusFromRemaining(snap.remainingPct);
   const reset = formatResetCountdown(snap.resetAt);
@@ -49,21 +52,25 @@ function WindowCell({ snap }: { snap: LatestSnapshot }) {
           className={`font-serif font-semibold tnum leading-none text-[20px] sm:text-[24px] ${INK_TEXT[level]}`}
           style={{ letterSpacing: "-0.03em" }}
         >
-          {usedPct.toFixed(0)}
+          {isBalance ? formatBalance(Math.max(0, snap.total - snap.used), snap.unit) : usedPct.toFixed(0)}
         </span>
-        <span
-          className={`font-serif leading-none ${INK_TEXT[level]}`}
-          style={{ fontSize: 12 }}
-        >
-          %
-        </span>
+        {!isBalance && (
+          <span
+            className={`font-serif leading-none ${INK_TEXT[level]}`}
+            style={{ fontSize: 12 }}
+          >
+            %
+          </span>
+        )}
         <span className="font-mono text-[9px] tracking-[0.1em] uppercase text-ink-4 ml-0.5">
-          used
+          {isBalance ? "剩余" : "used"}
         </span>
       </div>
-      <div className="mt-1.5">
-        <InkBand usedPct={usedPct} level={level} variant="sec" />
-      </div>
+      {!isBalance && (
+        <div className="mt-1.5">
+          <InkBand usedPct={usedPct} level={level} variant="sec" />
+        </div>
+      )}
     </div>
   );
 }
@@ -104,6 +111,11 @@ export function ProviderRow({ card, onOpen }: ProviderRowProps) {
       <div className="min-w-0">
         <div className="font-mono text-[9px] tracking-[0.18em] uppercase text-ink-3 truncate">
           {card.providerType}
+          {card.poll && card.poll.lastStatus !== "ok" && (
+            <span className="text-ochre normal-case tracking-[0.06em]">
+              {" "}· 采集失败，数据可能滞后
+            </span>
+          )}
         </div>
         <h3 className="font-serif italic text-[17px] leading-tight text-ink truncate">
           {card.displayName}

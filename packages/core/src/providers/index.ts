@@ -19,3 +19,5 @@ export { antigravityProvider } from './antigravity.js';
 export { glmCnProvider } from './glm-cn.js';
 export { copilotProvider } from './copilot.js';
 export { grokProvider } from './grok.js';
+export { deepseekProvider } from './deepseek.js';
+export { openrouterProvider } from './openrouter.js';

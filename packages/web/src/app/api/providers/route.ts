@@ -3,6 +3,7 @@ import {
   PROVIDER_AUTH_META,
   getProviderAuthMeta,
   resolveOpenCodeGoCredentials,
+  readShellEnvVar,
 } from '@quota-watch/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -71,6 +72,14 @@ export async function POST(request: NextRequest) {
     }
     credentials.workspaceId = detected.workspaceId;
     credentials.authCookie = detected.authCookie;
+  } else if (meta.envVar && autoImport) {
+    // one-click import from ~/.shell_env (launchd services never see the
+    // user's shell env, so the value is copied into the DB once here)
+    const value = readShellEnvVar(meta.envVar);
+    if (!value) {
+      return Response.json({ error: `~/.shell_env 里没有 ${meta.envVar}` }, { status: 400 });
+    }
+    credentials[meta.fields?.[0]?.key ?? 'apiKey'] = value;
   } else if (meta.authKind === 'api-key') {
     const fields = meta.fields ?? [{ key: 'apiKey', label: 'API Key' }];
     for (const field of fields) {
@@ -137,6 +146,29 @@ export async function DELETE(request: NextRequest) {
       { error: err instanceof Error ? err.message : 'delete failed' },
       { status: 500 },
     );
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * PATCH — flip a provider's enabled switch. Disabled providers are neither
+ * polled (the scheduler drops them within one 30s reconcile tick) nor shown
+ * on the dashboard. Credentials stay stored so re-enabling is one click.
+ */
+export async function PATCH(request: NextRequest) {
+  const body = await request.json().catch(() => ({}));
+  const { id, enabled } = body as { id?: string; enabled?: boolean };
+  if (!id || typeof enabled !== 'boolean') {
+    return Response.json({ error: 'id and boolean enabled required' }, { status: 400 });
+  }
+  const db = openDb();
+  if (db instanceof Response) return db;
+  try {
+    const existing = db.getProvider(id);
+    if (!existing) return Response.json({ error: 'not found' }, { status: 404 });
+    db.upsertProvider({ ...existing, enabled, updatedAt: new Date().toISOString() });
+    return Response.json({ ok: true, enabled });
   } finally {
     db.close();
   }

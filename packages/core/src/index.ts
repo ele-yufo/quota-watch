@@ -36,6 +36,7 @@ export {
   type ResolvedTokens,
   type TokenSource,
 } from './auth/credential-source.js';
+export { readShellEnvVar } from './auth/shell-env.js';
 export { resolveCredentials, fetchWithRefresh, type QuotaFetcher } from './auth/token-manager.js';
 export { refreshAndPersist, type RefreshedTokens } from './auth/refresh.js';
 export {

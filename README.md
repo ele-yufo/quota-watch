@@ -15,7 +15,7 @@ No cloud, no telemetry — your tokens never leave your machine.
 ![Platforms](https://img.shields.io/badge/platforms-Web%20·%20CLI%20·%20MCP-lightgrey)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
 
-<img src="docs/screenshots/web-terminal.png" width="820" alt="quota-watch web dashboard — terminal theme" />
+<img src="docs/screenshots/web-magazine.png" width="820" alt="quota-watch web dashboard — Magazine theme" />
 
 </div>
 
@@ -30,31 +30,19 @@ shows you — everywhere you look — exactly how much is left and when it reset
 
 ## Highlights
 
-- 🛰 **7 providers, natively integrated** — Claude Code, Codex (your ChatGPT plan's Codex quota), GLM, OpenCode Go, Kimi, Antigravity, Grok. Direct HTTP clients; no shelling out to community tools. GitHub Copilot is on the roadmap.
+- 🛰 **9 providers, natively integrated** — Claude Code, Codex (your ChatGPT plan's Codex quota), GLM, OpenCode Go, Kimi, Antigravity, Grok, plus pay-as-you-go balances from DeepSeek and OpenRouter. Direct HTTP clients; no shelling out to community tools. GitHub Copilot is on the roadmap.
 - ⚡ **Near-realtime** — ~10 s when usage is moving, backing off when idle. GLM tips over its cap and you see it in seconds, not half an hour.
-- 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month), so `5h`, `7d` and `1mo` always read the same order across every surface.
-- 🎨 **Five web dashboards, five layouts** — not recolours. Each theme is its own composition, visualization and motion (see below).
+- 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month · balance), so `5h`, `7d` and `1mo` always read the same order across every surface.
+- 🔀 **Per-provider on/off switch** — pause a subscription and it stops polling *and* disappears from the dashboard; resume it any time from the setup page.
+- 🎨 **A single Magazine dashboard** — editorial broadsheet layout; one deliberate design, no theme switcher.
 - 🤖 **MCP server** — agents query quota state and get headroom-ranked channel recommendations over stdio or HTTPS.
 - 🔒 **Local-first & private** — SQLite on your machine; credentials are used only to call each provider's own API and are never uploaded anywhere.
 
-## The web dashboard — one product, five personalities
+## The web dashboard — Magazine
 
-Every theme is a *different dashboard*, not a swapped palette. Switch live from the
-control dock (top-right, always in the same place).
+One deliberate editorial design: broadsheet typography, ink-band gauges, drawer detail view.
 
-<table>
-  <tr>
-    <td width="50%"><b>Magazine</b> — editorial broadsheet<br/><img src="docs/screenshots/web-magazine.png" alt="Magazine theme" /></td>
-    <td width="50%"><b>Terminal</b> — btop-style CLI, ASCII gauges, CRT scanlines<br/><img src="docs/screenshots/web-terminal.png" alt="Terminal theme" /></td>
-  </tr>
-  <tr>
-    <td width="50%"><b>OLED</b> — pure black, giant figures<br/><img src="docs/screenshots/web-oled.png" alt="OLED theme" /></td>
-    <td width="50%"><b>Swiss</b> — International Typographic grid<br/><img src="docs/screenshots/web-swiss.png" alt="Swiss theme" /></td>
-  </tr>
-  <tr>
-    <td colspan="2"><b>Blueprint</b> — a technical drawing sheet with SVG gauge instruments<br/><img src="docs/screenshots/web-blueprint.png" width="60%" alt="Blueprint theme" /></td>
-  </tr>
-</table>
+<img src="docs/screenshots/web-magazine.png" width="820" alt="quota-watch web dashboard — Magazine theme" />
 
 ## Quick start
 
@@ -142,6 +130,8 @@ security notes.
 | Kimi | 5h session, 7d weekly | Kimi Code API key |
 | Antigravity | 5h + weekly Gemini pool, 5h + weekly Claude+GPT pool | LOCAL first: reads the running IDE's language server (Connect RPC, no credentials) via `RetrieveUserQuotaSummary` — the same data the IDE's own quota UI shows; falls back to the `antigravity-usage` CLI token store (5h only) |
 | Grok | monthly credits | reuses the xAI OAuth store shared by `grok login` / cliproxyapi (`~/.cli-proxy-api/xai-*.json`), auto-refresh |
+| DeepSeek | account balance (CNY/USD) | pay-as-you-go API key; one-click import from `$DEEPSEEK_API_KEY` |
+| OpenRouter | lifetime credits vs usage | pay-as-you-go API key; one-click import from `$OPENROUTER_API_KEY` |
 
 *Roadmap:* a **GitHub Copilot** adapter (monthly request allowances) is implemented but its credential setup isn't wired into the app yet.
 
@@ -156,7 +146,7 @@ quota-watch/
 ├── packages/core/    unified quota model (window kinds) + providers + scheduler
 │                     + daemon HTTPS API + CLI-credential reuse/refresh
 ├── packages/cli/     status · config · dashboard · daemon · mcp (stdio server)
-├── packages/web/     Next.js dashboard — 5 per-theme layouts, :3000
+├── packages/web/     Next.js dashboard — single Magazine layout, :3000
 └── deploy/mac/       launchd agents: daemon + web (+ optional frp tunnel)
 ```
 

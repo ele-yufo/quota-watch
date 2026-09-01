@@ -122,6 +122,21 @@ describe("QuotaDB", () => {
 
   // ── Snapshot insert & query ──────────────────────────────────────
 
+  it("clamps remaining_pct to 0 for over-limit PAYG balances", () => {
+    // Over-limit OpenRouter (usage > credits) must never persist a negative
+    // remaining_pct — the dashboard renders it as a negative dollar amount.
+    db.upsertProvider(makeProvider({ id: "prov-1" }));
+
+    db.insertSnapshot(
+      makeSnapshot({ windowName: "credits", used: 12, total: 10, unit: "usd" }),
+      "prov-1",
+    );
+
+    const rows = db.getLatestSnapshots();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.remainingPct).toBe(0);
+  });
+
   it("inserts and queries snapshots", () => {
     // Create the provider first (FK constraint)
     db.upsertProvider(makeProvider({ id: "prov-1" }));

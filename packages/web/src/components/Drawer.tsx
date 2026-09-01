@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { CardData, LatestSnapshot } from "@/lib/types";
 import { InkBand } from "./InkBand";
 import {
+  formatBalance,
   formatResetCountdown,
   formatUsage,
   headline,
@@ -12,11 +13,14 @@ import {
 } from "@/lib/format";
 
 function WindowRow({ snap }: { snap: LatestSnapshot }) {
+  const isBalance = snap.windowKind === "balance";
   const usedPct = 100 - snap.remainingPct;
   const level = statusFromRemaining(snap.remainingPct);
   const reset = formatResetCountdown(snap.resetAt);
   const usage = formatUsage(snap.used, snap.total, snap.unit);
-  const head = headline(usedPct, snap.used, snap.unit);
+  const head = isBalance
+    ? { value: formatBalance(Math.max(0, snap.total - snap.used), snap.unit), sub: "" }
+    : headline(usedPct, snap.used, snap.unit);
 
   return (
     <div>
@@ -39,14 +43,21 @@ function WindowRow({ snap }: { snap: LatestSnapshot }) {
           </span>
         )}
       </div>
-      <div className="mt-3">
-        <InkBand usedPct={usedPct} level={level} variant="hero" />
-      </div>
-      <p className="font-serif italic text-[12px] text-ink-2 mt-2">
-        of {usage.total}
-        {usage.suffix ? ` ${usage.suffix}` : ""} · used {usage.used}
-        {usage.suffix ? ` ${usage.suffix}` : ""}
-      </p>
+      {!isBalance && (
+        <>
+          <div className="mt-3">
+            <InkBand usedPct={usedPct} level={level} variant="hero" />
+          </div>
+          <p className="font-serif italic text-[12px] text-ink-2 mt-2">
+            of {usage.total}
+            {usage.suffix ? ` ${usage.suffix}` : ""} · used {usage.used}
+            {usage.suffix ? ` ${usage.suffix}` : ""}
+          </p>
+        </>
+      )}
+      {isBalance && (
+        <p className="font-serif italic text-[12px] text-ink-2 mt-2">剩余余额 · 按量付费，无重置</p>
+      )}
     </div>
   );
 }

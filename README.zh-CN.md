@@ -14,7 +14,7 @@
 ![Platforms](https://img.shields.io/badge/platforms-Web%20·%20CLI%20·%20MCP-lightgrey)
 ![Node](https://img.shields.io/badge/node-%E2%89%A520-339933)
 
-<img src="docs/screenshots/web-terminal.png" width="820" alt="quota-watch 网页仪表盘 — 终端主题" />
+<img src="docs/screenshots/web-magazine.png" width="820" alt="quota-watch 网页仪表盘 — Magazine 主题" />
 
 </div>
 
@@ -28,30 +28,19 @@
 
 ## 亮点
 
-- 🛰 **7 家原生集成** —— Claude Code、Codex(即你 ChatGPT 套餐里的 Codex 额度)、GLM、OpenCode Go、Kimi、Antigravity、Grok。直连各家 HTTP 接口,不 shell-out 到社区工具。GitHub Copilot 在路线图上。
+- 🛰 **9 家原生集成** —— Claude Code、Codex(即你 ChatGPT 套餐里的 Codex 额度)、GLM、OpenCode Go、Kimi、Antigravity、Grok,以及 DeepSeek、OpenRouter 的按量付费余额。直连各家 HTTP 接口,不 shell-out 到社区工具。GitHub Copilot 在路线图上。
 - ⚡ **近实时** —— 用量变动时约 10 秒刷新,空闲时自动降频。GLM 一超配额你几秒就看到,不是等半小时。
-- 🧭 **统一模型** —— 每个配额窗口带「类型」(session · day · week · month),`5h`/`7d`/`1mo` 在每个端都按同一顺序呈现。
-- 🎨 **五套网页仪表盘,五种布局** —— 不是换配色。每个主题是独立的排版、可视化与动效(见下)。
+- 🧭 **统一模型** —— 每个配额窗口带「类型」(session · day · week · month · balance),`5h`/`7d`/`1mo` 在每个端都按同一顺序呈现。
+- 🔀 **每个订阅独立开关** —— 停掉某个订阅即停止采集并从看板隐藏,随时在 setup 页恢复。
+- 🎨 **单一 Magazine 仪表盘** —— 编辑印刷风排版,一个确定的设计,无主题切换器。
 - 🤖 **MCP Server** —— agent 经 stdio 或 HTTPS 查询配额状态、拿按余量排序的派单建议。
 - 🔒 **本地优先、隐私** —— SQLite 存本机;凭据只用于调各家自己的接口,从不上传任何地方。
 
-## 网页仪表盘 —— 一个产品,五种性格
+## 网页仪表盘 —— Magazine
 
-每个主题都是**不同的仪表盘**,不是换调色板。从右上角固定的控制坞实时切换。
+单一的编辑印刷风设计:报纸排版、墨条量表、抽屉式详情。
 
-<table>
-  <tr>
-    <td width="50%"><b>Magazine</b> —— 编辑印刷风<br/><img src="docs/screenshots/web-magazine.png" alt="Magazine 主题" /></td>
-    <td width="50%"><b>Terminal</b> —— btop 风 CLI、ASCII 量表、CRT 扫描线<br/><img src="docs/screenshots/web-terminal.png" alt="Terminal 主题" /></td>
-  </tr>
-  <tr>
-    <td width="50%"><b>OLED</b> —— 纯黑、超大数字<br/><img src="docs/screenshots/web-oled.png" alt="OLED 主题" /></td>
-    <td width="50%"><b>Swiss</b> —— 国际主义排版网格<br/><img src="docs/screenshots/web-swiss.png" alt="Swiss 主题" /></td>
-  </tr>
-  <tr>
-    <td colspan="2"><b>Blueprint</b> —— 工程蓝图 + SVG 仪表<br/><img src="docs/screenshots/web-blueprint.png" width="60%" alt="Blueprint 主题" /></td>
-  </tr>
-</table>
+<img src="docs/screenshots/web-magazine.png" width="820" alt="quota-watch 网页仪表盘 — Magazine 主题" />
 
 ## 快速上手
 
@@ -121,6 +110,8 @@ claude mcp add quota-watch --transport http https://<公网IP>:3737/mcp \
 | Kimi | 5h session、7d weekly | Kimi Code API key |
 | Antigravity | 5h + weekly Gemini 池、5h + weekly Claude+GPT 池 | 优先读本地运行中 IDE 的 language server(Connect RPC,免凭证),走 `RetrieveUserQuotaSummary`——与 IDE 自己的配额界面同源;IDE 未开时回退 `antigravity-usage` CLI 的 token 存储(只有 5h) |
 | Grok | 月度 credits | 复用 `grok login` / cliproxyapi 共享的 xAI OAuth 存储(`~/.cli-proxy-api/xai-*.json`),自动刷新 |
+| DeepSeek | 账户余额(CNY/USD) | 按量付费 API key;可从 `$DEEPSEEK_API_KEY` 一键导入 |
+| OpenRouter | 累计 credits vs 用量 | 按量付费 API key;可从 `$OPENROUTER_API_KEY` 一键导入 |
 
 *路线图:* **GitHub Copilot** 适配器(月度请求额度)已实现,但凭据接入尚未接进 app。
 
@@ -134,7 +125,7 @@ quota-watch/
 ├── packages/core/    统一配额模型(窗口 kind)+ providers + 调度器
 │                     + daemon HTTP API + CLI 凭据复用/刷新
 ├── packages/cli/     status · config · dashboard · daemon · mcp(stdio server)
-├── packages/web/     Next.js 仪表盘 —— 五套按主题的布局,:3000
+├── packages/web/     Next.js 仪表盘 —— 单一 Magazine 布局,:3000
 └── deploy/mac/       launchd agent:daemon + web(+ 可选 frp 隧道)
 ```
 

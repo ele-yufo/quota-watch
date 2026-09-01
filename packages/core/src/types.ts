@@ -14,7 +14,7 @@ export interface QuotaWindow {
   /** Total allocation */
   total: number;
   /** Unit type */
-  unit: 'tokens' | 'credits' | 'percent' | 'usd' | 'requests' | 'unknown';
+  unit: 'tokens' | 'credits' | 'percent' | 'usd' | 'cny' | 'requests' | 'unknown';
   /** total - used */
   remaining: number;
   /** 0-100 percentage remaining */

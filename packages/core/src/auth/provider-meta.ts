@@ -24,6 +24,8 @@ export interface ProviderAuthMeta {
   cliLoginHint?: string;
   /** for api-key: the credential fields the adapter reads (1..n) */
   fields?: CredentialField[];
+  /** for api-key: a var in ~/.shell_env the setup UI can one-click import */
+  envVar?: string;
   /** false = credential reuse not yet wired; setup UI hides it */
   available?: boolean;
 }
@@ -97,6 +99,34 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     authKind: "oauth-file",
     cliSource: "grok-cli",
     cliLoginHint: "登录一次官方 Grok CLI：`grok login`（或 cliproxyapi 的 xai 登录）",
+  },
+  {
+    slug: "deepseek",
+    displayName: "DeepSeek",
+    authKind: "api-key",
+    envVar: "DEEPSEEK_API_KEY",
+    fields: [
+      { key: "apiKey", label: "API Key", hint: "platform.deepseek.com → API keys（本机 ~/.shell_env 有 DEEPSEEK_API_KEY 可一键导入）" },
+    ],
+  },
+  {
+    slug: "openrouter",
+    displayName: "OpenRouter",
+    authKind: "api-key",
+    envVar: "OPENROUTER_API_KEY",
+    fields: [
+      { key: "apiKey", label: "API Key", hint: "openrouter.ai → Keys（本机 ~/.shell_env 有 OPENROUTER_API_KEY 可一键导入）" },
+    ],
+  },
+  {
+    // Balance endpoint unverified without a key — hidden until wired.
+    slug: "aihubmix",
+    displayName: "AIHubMix",
+    authKind: "api-key",
+    fields: [
+      { key: "apiKey", label: "API Key", hint: "aihubmix.com → 令牌（sk-…）" },
+    ],
+    available: false,
   },
   // P2 — not yet wired
   { slug: "copilot", displayName: "GitHub Copilot", authKind: "oauth-file", available: false },

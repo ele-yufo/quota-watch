@@ -41,3 +41,4 @@ android/**/build/
 android/.idea/
 android/captures/
 android/.kotlin/
+.playwright-mcp/

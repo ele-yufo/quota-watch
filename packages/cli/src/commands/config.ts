@@ -17,6 +17,8 @@ import {
   kimiProvider,
   antigravityProvider,
   grokProvider,
+  deepseekProvider,
+  openrouterProvider,
 } from '@quota-watch/core';
 import type { ProviderAdapter, ProviderAuthMeta, ProviderConfig } from '@quota-watch/core';
 
@@ -30,6 +32,8 @@ const ADAPTER_BY_SLUG: Record<string, ProviderAdapter> = {
   kimi: kimiProvider,
   antigravity: antigravityProvider,
   grok: grokProvider,
+  deepseek: deepseekProvider,
+  openrouter: openrouterProvider,
 };
 
 interface ProviderMeta {
@@ -279,10 +283,17 @@ async function cmdTest(providerIdOrName: string | undefined): Promise<void> {
       console.log(chalk.green(`✓ Connection successful!`));
       console.log(chalk.dim(`  Plan: ${result.plan}`));
       for (const w of result.windows) {
-        const usedPct = (100 - w.remainingPct).toFixed(1);
-        console.log(
-          `  ${w.name}: ${w.used} ${w.unit} used (${usedPct}%)`,
-        );
+        if (w.kind === 'balance') {
+          const money = w.unit === 'cny' ? '¥' : w.unit === 'usd' ? '$' : '';
+          const left = Math.max(0, w.remaining);
+          const remaining = money ? `${money}${left.toFixed(2)}` : `${left} ${w.unit}`;
+          console.log(`  ${w.name}: ${remaining} remaining (pay-as-you-go, no reset)`);
+        } else {
+          const usedPct = (100 - w.remainingPct).toFixed(1);
+          console.log(
+            `  ${w.name}: ${w.used} ${w.unit} used (${usedPct}%)`,
+          );
+        }
       }
     } else {
       console.log(chalk.red(`✗ ${result.status}: ${result.error ?? 'Unknown error'}`));

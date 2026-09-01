@@ -130,6 +130,17 @@ export class QuotaDB {
       this.db.exec(`DROP TABLE IF EXISTS alert_rules`);
       this.db.pragma("user_version = 6");
     }
+
+    if (version < 7) {
+      // remaining_pct is derived (used/total) but persisted; over-limit PAYG
+      // rows written before the insert-time clamp can hold negatives. Repair
+      // them once — dedup compares only used/total/unit/reset_at, so a stale
+      // negative row would otherwise survive forever.
+      this.db.exec(`UPDATE quota_snapshots
+        SET remaining_pct = MIN(100, MAX(0, remaining_pct))
+        WHERE remaining_pct < 0 OR remaining_pct > 100`);
+      this.db.pragma("user_version = 7");
+    }
   }
 
   /** v3: token-usage ledger fed by CLI session logs (token monitoring). */
@@ -299,7 +310,12 @@ export class QuotaDB {
    * provider×window already matches (used/total/unit/reset_at).
    */
   insertSnapshot(snap: UsageSnapshot, providerId: string): boolean {
-    const remainingPct = snap.total > 0 ? ((snap.total - snap.used) / snap.total) * 100 : 0;
+    // Clamp: over-limit PAYG accounts (usage > credits) would otherwise persist
+    // a negative remaining_pct that renders as "-$2.00".
+    const remainingPct =
+      snap.total > 0
+        ? Math.min(100, Math.max(0, ((snap.total - snap.used) / snap.total) * 100))
+        : 0;
 
     const latest = this.db
       .prepare(

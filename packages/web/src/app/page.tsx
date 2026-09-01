@@ -3,10 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CardData, DaemonStatus, QuotaApiProvider } from "@/lib/types";
 import { WINDOW_KIND_ORDER } from "@/lib/types";
-import { ThemeProvider } from "@/lib/theme-context";
-import { Dashboard } from "@/components/dashboards/Dashboard";
+import { MagazineDashboard } from "@/components/dashboards/MagazineDashboard";
 import { ControlDock } from "@/components/ControlDock";
-import { StaleDataBanner } from "@/components/StaleDataBanner";
 import { Drawer } from "@/components/Drawer";
 
 // Near-realtime dashboard: the daemon polls providers every ~10-15s, the page
@@ -19,7 +17,8 @@ async function loadCards(): Promise<CardData[]> {
   const list: QuotaApiProvider[] = await res.json();
   if (!Array.isArray(list)) return [];
 
-  return list.map((p) => {
+  // Disabled channels (toggled off in /setup) are neither polled nor shown.
+  return list.filter((p) => p.enabled).map((p) => {
     const valid = p.windows.filter(
       (w) => typeof w.remainingPct === "number" && !isNaN(w.remainingPct),
     );
@@ -72,8 +71,8 @@ export default function Page() {
       setStatus("ready");
     } catch {
       // A transient fetch failure must not wipe an already-rendered dashboard
-      // with a full-screen error — keep the last good cards (the stale banner
-      // already flags age). Only the never-loaded state gets the error screen.
+      // with a full-screen error — keep the last good cards. Only the
+      // never-loaded state gets the error screen.
       setStatus((s) => (s === "loading" ? "error" : s));
     } finally {
       running.current = false;
@@ -107,11 +106,8 @@ export default function Page() {
   }, [cards, selected, status]);
 
   return (
-    <ThemeProvider>
-      {/* Controls live here, fixed and consistent across every theme, so they
-          never move when the layout changes. */}
+    <>
       <ControlDock polling={polling} onPollNow={pollNow} />
-      <StaleDataBanner cards={cards} daemon={daemon} onOpen={setSelected} />
 
       {status === "loading" && <FullScreenNote>loading…</FullScreenNote>}
       {status === "error" && (
@@ -127,7 +123,7 @@ export default function Page() {
       )}
       {status === "ready" && cards.length === 0 && <EmptyState />}
       {status === "ready" && cards.length > 0 && (
-        <Dashboard
+        <MagazineDashboard
           cards={cards}
           daemon={daemon}
           updatedAt={updatedAt}
@@ -145,7 +141,7 @@ export default function Page() {
           onClose={() => setSelected(null)}
         />
       )}
-    </ThemeProvider>
+    </>
   );
 }
 

@@ -8,7 +8,7 @@
  * cadence + API binding come from ~/.quota-watch/config.json.
  */
 
-import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import {
@@ -26,6 +26,8 @@ import {
   kimiProvider,
   antigravityProvider,
   grokProvider,
+  deepseekProvider,
+  openrouterProvider,
   glmCnProvider,
   copilotProvider,
 } from '@quota-watch/core';
@@ -102,6 +104,8 @@ async function main(): Promise<void> {
   registry.register(glmCnProvider);
   registry.register(copilotProvider);
   registry.register(grokProvider);
+  registry.register(deepseekProvider);
+  registry.register(openrouterProvider);
   log('INFO', `Registered providers: ${registry.list().join(', ')}`);
 
   const scheduler = new QuotaScheduler({
@@ -188,13 +192,16 @@ async function main(): Promise<void> {
     log('WARN', `Startup maintenance skipped: ${err instanceof Error ? err.message : err}`);
   }
 
-  // Remove the legacy pre-v2 database leftover. (daemon.pid is NOT a leftover —
-  // the CLI's `daemon start` writes it and `daemon stop` reads it.)
+  // Retire the legacy pre-v2 database leftover — rename, never delete: an
+  // upgrade gone wrong must not destroy recoverable credentials. Skip when a
+  // backup already exists so a second boot can't overwrite it. (daemon.pid is
+  // NOT a leftover — the CLI's `daemon start` writes it and `daemon stop`
+  // reads it.)
   const legacyDb = join(DATA_DIR, 'quota-watch.db');
-  if (existsSync(legacyDb)) {
+  if (existsSync(legacyDb) && !existsSync(`${legacyDb}.bak`)) {
     try {
-      rmSync(legacyDb);
-      log('INFO', 'Removed legacy file: quota-watch.db');
+      renameSync(legacyDb, `${legacyDb}.bak`);
+      log('INFO', 'Retired legacy file: quota-watch.db → quota-watch.db.bak');
     } catch {
       /* best effort */
     }

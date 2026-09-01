@@ -17,6 +17,7 @@ interface ProviderAuthMeta {
   cliSource?: string;
   cliLoginHint?: string;
   fields?: CredentialField[];
+  envVar?: string;
   available?: boolean;
 }
 interface Configured {
@@ -139,6 +140,24 @@ export default function SetupPage() {
     }
   }
 
+  async function toggleEnabled(cfg: Configured) {
+    setBusy(cfg.id);
+    setError(null);
+    try {
+      const r = await fetch("/api/providers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: cfg.id, enabled: !cfg.enabled }),
+      });
+      if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "切换失败"));
+      await load();
+    } catch {
+      setError("切换失败：网络错误");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const configuredCount = data?.configured.length ?? 0;
 
   return (
@@ -219,16 +238,32 @@ export default function SetupPage() {
                 )}
 
                 {cfg ? (
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span className="font-serif italic text-[13px] text-ink-2">
-                      ✓ {cfg.displayName} — connected
+                      ✓ {cfg.displayName} — {cfg.enabled ? "connected" : "已暂停（不采集、不显示）"}
                     </span>
-                    <button
-                      onClick={() => remove(cfg.id)}
-                      className="font-mono text-[11px] text-vermillion border border-vermillion/40 px-2 py-0.5 hover:bg-vermillion/10"
-                    >
-                      remove
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => toggleEnabled(cfg)}
+                        disabled={busy === cfg.id}
+                        role="switch"
+                        aria-checked={cfg.enabled}
+                        title={cfg.enabled ? "暂停采集并从前台隐藏" : "恢复采集并显示"}
+                        className={`font-mono text-[11px] border px-2 py-0.5 disabled:opacity-40 ${
+                          cfg.enabled
+                            ? "text-ink border-ink/40 hover:bg-ink/5"
+                            : "text-ochre border-ochre/50 hover:bg-ochre/10"
+                        }`}
+                      >
+                        {cfg.enabled ? "on" : "off"}
+                      </button>
+                      <button
+                        onClick={() => remove(cfg.id)}
+                        className="font-mono text-[11px] text-vermillion border border-vermillion/40 px-2 py-0.5 hover:bg-vermillion/10"
+                      >
+                        remove
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -267,6 +302,15 @@ export default function SetupPage() {
 
                     {m.authKind === "api-key" && fields.length > 0 && (
                       <div className="space-y-2">
+                        {m.envVar && (
+                          <button
+                            onClick={() => connect(m.slug, true)}
+                            disabled={busy === m.slug}
+                            className="font-mono text-[11px] text-ink border border-ink/40 px-3 py-1 hover:bg-ink/5 disabled:opacity-40"
+                          >
+                            {busy === m.slug ? "导入中…" : `从 ~/.shell_env 导入 ${m.envVar}`}
+                          </button>
+                        )}
                         {fields.map((f) => (
                           <div key={f.key}>
                             <input

@@ -27,6 +27,8 @@ export function formatUsage(
   switch (unit) {
     case "usd":
       return { used: "$" + used.toFixed(2), total: "$" + total.toFixed(2), suffix: "" };
+    case "cny":
+      return { used: "¥" + used.toFixed(2), total: "¥" + total.toFixed(2), suffix: "" };
     case "percent":
       return { used: used.toFixed(0) + "%", total: total.toFixed(0) + "%", suffix: "" };
     case "tokens":
@@ -46,7 +48,15 @@ export function headline(
   unit: string,
 ): { value: string; sub: string } {
   if (unit === "usd") return { value: "$" + used.toFixed(2), sub: "" };
+  if (unit === "cny") return { value: "¥" + used.toFixed(2), sub: "" };
   return { value: usedPct.toFixed(0), sub: "%" };
+}
+
+/** Balance windows headline the REMAINING amount, not consumption. */
+export function formatBalance(remaining: number, unit: string): string {
+  if (unit === "usd") return "$" + remaining.toFixed(2);
+  if (unit === "cny") return "¥" + remaining.toFixed(2);
+  return formatCount(remaining) + (unit !== "unknown" ? ` ${unit}` : "");
 }
 
 /** ms -> "3d 04h" / "1h 30m" / "45m" / "<1m". */

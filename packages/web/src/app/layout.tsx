@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Fraunces, JetBrains_Mono } from "next/font/google";
-import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/themes";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -31,14 +30,8 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      data-theme="magazine"
       className={`${fraunces.variable} ${jetbrains.variable}`}
-      suppressHydrationWarning
     >
-      <head>
-        {/* apply the persisted theme before first paint (no flash) */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
-      </head>
       <body>{children}</body>
     </html>
   );

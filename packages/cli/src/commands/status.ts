@@ -42,7 +42,7 @@ export function statusCommand(program: Command): void {
             chalk.cyan('Window'),
             chalk.cyan('Bar'),
             chalk.cyan('Used'),
-            chalk.cyan('Total'),
+            chalk.cyan('Total/Left'),
             chalk.cyan('Pace'),
             chalk.cyan('Reset'),
           ],
@@ -60,15 +60,21 @@ export function statusCommand(program: Command): void {
         }
 
         for (const row of rows) {
-          const usedStr = formatTokens(row.used);
-          const totalStr = formatTokens(row.total);
-          const bar = renderQuotaBar(row.remainingPct, 16);
+          // Balance windows (PAYG): headline the remaining balance, skip the
+          // quota bar and pace — there is no reset cycle to pace against.
+          const isBalance = row.windowKind === 'balance';
+          const remaining = Math.max(0, row.total - row.used);
+          const money = row.unit === 'cny' ? '¥' : row.unit === 'usd' ? '$' : '';
+          const usedStr = isBalance && money ? chalk.dim('—') : formatTokens(row.used);
+          const totalStr = isBalance && money
+            ? `${money}${remaining.toFixed(2)}`
+            : formatTokens(row.total);
+          const bar = isBalance ? chalk.dim('—') : renderQuotaBar(row.remainingPct, 16);
 
           const pred = predictions.get(`${row.providerId}:${row.windowName}`);
-          const pace = pred?.pace ?? 0;
-          const paceStr = renderPace(pace);
+          const paceStr = isBalance ? chalk.dim('—') : renderPace(pred?.pace ?? 0);
 
-          const resetStr = renderResetTime(row.resetAt);
+          const resetStr = isBalance ? chalk.dim('—') : renderResetTime(row.resetAt);
 
           table.push([
             chalk.bold(row.displayName),
