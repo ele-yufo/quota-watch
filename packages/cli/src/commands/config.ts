@@ -19,6 +19,7 @@ import {
   grokProvider,
   deepseekProvider,
   openrouterProvider,
+  aihubmixProvider,
 } from '@quota-watch/core';
 import type { ProviderAdapter, ProviderAuthMeta, ProviderConfig } from '@quota-watch/core';
 
@@ -34,6 +35,7 @@ const ADAPTER_BY_SLUG: Record<string, ProviderAdapter> = {
   grok: grokProvider,
   deepseek: deepseekProvider,
   openrouter: openrouterProvider,
+  aihubmix: aihubmixProvider,
 };
 
 interface ProviderMeta {

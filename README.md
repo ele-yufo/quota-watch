@@ -30,7 +30,7 @@ shows you — everywhere you look — exactly how much is left and when it reset
 
 ## Highlights
 
-- 🛰 **9 providers, natively integrated** — Claude Code, Codex (your ChatGPT plan's Codex quota), GLM, OpenCode Go, Kimi, Antigravity, Grok, plus pay-as-you-go balances from DeepSeek and OpenRouter. Direct HTTP clients; no shelling out to community tools. GitHub Copilot is on the roadmap.
+- 🛰 **10 providers, natively integrated** — Claude Code, Codex (your ChatGPT plan's Codex quota), GLM, OpenCode Go, Kimi, Antigravity, Grok, plus pay-as-you-go balances from DeepSeek, OpenRouter and AIHubMix. Direct HTTP clients; no shelling out to community tools. GitHub Copilot is on the roadmap.
 - ⚡ **Near-realtime** — ~10 s when usage is moving, backing off when idle. GLM tips over its cap and you see it in seconds, not half an hour.
 - 🧭 **One unified model** — every quota window carries a *kind* (session · day · week · month · balance), so `5h`, `7d` and `1mo` always read the same order across every surface.
 - 🔀 **Per-provider on/off switch** — pause a subscription and it stops polling *and* disappears from the dashboard; resume it any time from the setup page.
@@ -132,6 +132,7 @@ security notes.
 | Grok | monthly credits | reuses the xAI OAuth store shared by `grok login` / cliproxyapi (`~/.cli-proxy-api/xai-*.json`), auto-refresh |
 | DeepSeek | account balance (CNY/USD) | pay-as-you-go API key; one-click import from `$DEEPSEEK_API_KEY` |
 | OpenRouter | lifetime credits vs usage | pay-as-you-go API key; one-click import from `$OPENROUTER_API_KEY` |
+| AIHubMix | account balance (USD) | Manage Key (系统访问令牌) from console.aihubmix.com → settings — the sk- inference key cannot read balances |
 
 *Roadmap:* a **GitHub Copilot** adapter (monthly request allowances) is implemented but its credential setup isn't wired into the app yet.
 

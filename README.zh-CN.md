@@ -28,7 +28,7 @@
 
 ## 亮点
 
-- 🛰 **9 家原生集成** —— Claude Code、Codex(即你 ChatGPT 套餐里的 Codex 额度)、GLM、OpenCode Go、Kimi、Antigravity、Grok,以及 DeepSeek、OpenRouter 的按量付费余额。直连各家 HTTP 接口,不 shell-out 到社区工具。GitHub Copilot 在路线图上。
+- 🛰 **10 家原生集成** —— Claude Code、Codex(即你 ChatGPT 套餐里的 Codex 额度)、GLM、OpenCode Go、Kimi、Antigravity、Grok,以及 DeepSeek、OpenRouter、AIHubMix 的按量付费余额。直连各家 HTTP 接口,不 shell-out 到社区工具。GitHub Copilot 在路线图上。
 - ⚡ **近实时** —— 用量变动时约 10 秒刷新,空闲时自动降频。GLM 一超配额你几秒就看到,不是等半小时。
 - 🧭 **统一模型** —— 每个配额窗口带「类型」(session · day · week · month · balance),`5h`/`7d`/`1mo` 在每个端都按同一顺序呈现。
 - 🔀 **每个订阅独立开关** —— 停掉某个订阅即停止采集并从看板隐藏,随时在 setup 页恢复。
@@ -112,6 +112,7 @@ claude mcp add quota-watch --transport http https://<公网IP>:3737/mcp \
 | Grok | 月度 credits | 复用 `grok login` / cliproxyapi 共享的 xAI OAuth 存储(`~/.cli-proxy-api/xai-*.json`),自动刷新 |
 | DeepSeek | 账户余额(CNY/USD) | 按量付费 API key;可从 `$DEEPSEEK_API_KEY` 一键导入 |
 | OpenRouter | 累计 credits vs 用量 | 按量付费 API key;可从 `$OPENROUTER_API_KEY` 一键导入 |
+| AIHubMix | 账户余额(USD) | console.aihubmix.com → 设置里的系统访问令牌(Manage Key);sk- 推理 key 查不了余额 |
 
 *路线图:* **GitHub Copilot** 适配器(月度请求额度)已实现,但凭据接入尚未接进 app。
 

@@ -119,14 +119,12 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     ],
   },
   {
-    // Balance endpoint unverified without a key — hidden until wired.
     slug: "aihubmix",
     displayName: "AIHubMix",
     authKind: "api-key",
     fields: [
-      { key: "apiKey", label: "API Key", hint: "aihubmix.com → 令牌（sk-…）" },
+      { key: "manageKey", label: "系统访问令牌（Manage Key）", hint: "console.aihubmix.com → 设置 → 生成系统访问令牌；sk- 推理 key 不能查余额" },
     ],
-    available: false,
   },
   // P2 — not yet wired
   { slug: "copilot", displayName: "GitHub Copilot", authKind: "oauth-file", available: false },

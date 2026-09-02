@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { deepseekProvider } from '../../src/providers/deepseek.js';
 import { openrouterProvider } from '../../src/providers/openrouter.js';
+import { aihubmixProvider } from '../../src/providers/aihubmix.js';
 import type { ProviderConfig } from '../../src/types.js';
 
 function makeConfig(provider: string, overrides?: Partial<ProviderConfig>): ProviderConfig {
@@ -79,6 +80,53 @@ describe('deepseekProvider', () => {
       .toBe('not_configured');
     fetchSpy.mockResolvedValue(jsonResponse(401, { error: 'unauthorized' }));
     expect((await deepseekProvider.fetchQuota(makeConfig('deepseek'))).status).toBe('auth_expired');
+  });
+});
+
+describe('aihubmixProvider', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  beforeEach(() => { fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy); });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  // Live-verified shape (2026-09): quota units, USD = quota / 500000.
+  const selfResponse = {
+    success: true,
+    message: '',
+    data: { quota: 20422016, used_quota: 56797078, username: 'Ruby76' },
+  };
+
+  it('maps quota units to a USD balance window', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(200, selfResponse));
+    const quota = await aihubmixProvider.fetchQuota(makeConfig('aihubmix', { credentials: { manageKey: 'fd-test' } }));
+
+    expect(quota.status).toBe('ok');
+    const w = quota.windows[0]!;
+    expect(w.kind).toBe('balance');
+    expect(w.unit).toBe('usd');
+    expect(w.remaining).toBeCloseTo(40.84);
+    expect(w.used).toBeCloseTo(113.59);
+    expect(w.total).toBeCloseTo(154.44);
+    expect(w.remainingPct).toBeGreaterThan(0);
+  });
+
+  it('sends the manage key to /api/user/self', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(200, selfResponse));
+    await aihubmixProvider.fetchQuota(makeConfig('aihubmix', { credentials: { manageKey: 'fd-test' } }));
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://aihubmix.com/api/user/self');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer fd-test');
+  });
+
+  it('errors on success:false (bad token answered 200)', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(200, { success: false, message: 'Unauthorized' }));
+    expect((await aihubmixProvider.fetchQuota(makeConfig('aihubmix'))).status).toBe('error');
+  });
+
+  it('not_configured without a key; 401 → auth_expired', async () => {
+    expect((await aihubmixProvider.fetchQuota(makeConfig('aihubmix', { credentials: {} }))).status)
+      .toBe('not_configured');
+    fetchSpy.mockResolvedValue(jsonResponse(401, { message: 'Unauthorized' }));
+    expect((await aihubmixProvider.fetchQuota(makeConfig('aihubmix'))).status).toBe('auth_expired');
   });
 });
 
