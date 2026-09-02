@@ -97,6 +97,75 @@ describe('claudeProvider', () => {
     expect(sonnet.remaining).toBe(70);
   });
 
+  describe('scoped weekly limits (Fable-only bucket etc.)', () => {
+    // Entry shape mirrors the live API (verified against Paseo's provider
+    // tests): percent is USED %, scope carries the label.
+    const fableLimit = (overrides: Record<string, unknown> = {}) => ({
+      kind: 'weekly_scoped',
+      group: 'weekly',
+      percent: 12,
+      severity: 'normal',
+      resets_at: '2026-07-07T00:00:00Z',
+      is_active: true,
+      scope: { model: { id: null, display_name: 'Fable' }, surface: null },
+      ...overrides,
+    });
+
+    it('renders a scoped weekly limit as its own window', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ...mockUsageResponse, limits: [fableLimit()] }),
+      });
+      const result = await claudeProvider.fetchQuota(makeConfig());
+      expect(result.status).toBe('ok');
+      const fable = result.windows.find((w) => w.name === 'weekly fable (7d)');
+      expect(fable).toBeDefined();
+      expect(fable!.kind).toBe('week');
+      expect(fable!.used).toBe(12);
+      expect(fable!.remaining).toBe(88);
+      expect(fable!.resetAt).toBe('2026-07-07T00:00:00Z');
+    });
+
+    it('skips unscoped session/weekly_all duplicates of the top-level windows', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          ...mockUsageResponse,
+          limits: [
+            { kind: 'session', percent: 87, resets_at: '2026-06-30T15:00:00Z', scope: null },
+            { kind: 'weekly_all', percent: 45, resets_at: '2026-07-07T00:00:00Z', scope: null },
+            fableLimit(),
+          ],
+        }),
+      });
+      const result = await claudeProvider.fetchQuota(makeConfig());
+      expect(result.windows).toHaveLength(4); // 3 top-level + fable
+    });
+
+    it('skips malformed or unlabelled entries without losing the good windows', async () => {
+      fetchSpy.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          ...mockUsageResponse,
+          limits: [
+            { percent: 'not-a-number' },
+            null,
+            { kind: 'weekly_scoped', percent: 5, scope: { model: { display_name: 42 } } },
+            fableLimit({ scope: { model: { id: null, display_name: null }, surface: null } }),
+            fableLimit({ scope: { model: null, surface: { id: 'code', display_name: 'Code' } } }),
+          ],
+        }),
+      });
+      const result = await claudeProvider.fetchQuota(makeConfig());
+      expect(result.status).toBe('ok');
+      expect(result.windows.map((w) => w.name)).toContain('weekly code (7d)');
+      expect(result.windows).toHaveLength(4);
+    });
+  });
+
   it('sends correct headers', async () => {
     fetchSpy.mockResolvedValue({
       ok: true,

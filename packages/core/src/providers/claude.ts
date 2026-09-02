@@ -13,6 +13,28 @@ interface ClaudeUsageResponse {
   five_hour: ClaudeUsageWindow | null;
   seven_day: ClaudeUsageWindow | null;
   seven_day_sonnet: ClaudeUsageWindow | null;
+  /**
+   * Model- and surface-scoped weekly buckets (e.g. the "Fable only" allowance).
+   * Entry shape verified against Paseo's ClaudeQuotaProvider test suite
+   * (2026-09): { kind, group, percent, severity, resets_at, is_active,
+   * scope: { model: {id, display_name} | null, surface: {id, display_name} | null } }.
+   * kind "session"/"weekly_all" entries with scope:null duplicate the
+   * top-level windows and must be skipped.
+   */
+  limits?: ScopedLimit[];
+}
+
+interface ScopedLimit {
+  kind?: string;
+  group?: string;
+  /** Used percent (0-100), NOT remaining. */
+  percent?: number;
+  resets_at?: string;
+  is_active?: boolean;
+  scope?: {
+    model?: { id?: string | null; display_name?: string | null } | null;
+    surface?: { id?: string | null; display_name?: string | null } | null;
+  } | null;
 }
 
 // ── 429 cooldown tracking ──────────────────────────────────────────────
@@ -64,12 +86,30 @@ const WINDOW_MAP = [
 ] as const;
 
 function mapWindows(data: ClaudeUsageResponse): QuotaWindow[] {
-  return WINDOW_MAP.flatMap(({ key, name, kind }) => {
+  const topLevel = WINDOW_MAP.flatMap(({ key, name, kind }) => {
     const win = data[key];
     // skip null/missing windows (e.g. seven_day_sonnet when the user has no separate sonnet quota)
     if (!win) return [];
     return [percentWindow(name, kind, win.utilization, win.resets_at ?? null)];
   });
+
+  // Scoped weekly buckets (Fable-only etc.) — one window per resolvable label.
+  // The wire contract distinguishes buckets by kind: only 'weekly_scoped' is a
+  // scoped bucket; 'session'/'weekly_all' duplicate the top-level windows.
+  // Malformed entries (null, non-string labels, non-number percent) are
+  // skipped — an additive section must never take down the good windows.
+  const scoped = (data.limits ?? []).flatMap((lim) => {
+    if (!lim || typeof lim !== 'object' || lim.kind !== 'weekly_scoped') return [];
+    const model = lim.scope?.model?.display_name;
+    const surface = lim.scope?.surface?.display_name;
+    const label = (typeof model === 'string' && model) || (typeof surface === 'string' && surface) || null;
+    if (!label || typeof lim.percent !== 'number') return [];
+    return [
+      percentWindow(`weekly ${label.toLowerCase()} (7d)`, 'week', lim.percent, lim.resets_at ?? null),
+    ];
+  });
+
+  return [...topLevel, ...scoped];
 }
 
 // ── Provider adapter ───────────────────────────────────────────────────
