@@ -22,3 +22,4 @@ export { grokProvider } from './grok.js';
 export { deepseekProvider } from './deepseek.js';
 export { openrouterProvider } from './openrouter.js';
 export { aihubmixProvider } from './aihubmix.js';
+export { orcarouterProvider } from './orcarouter.js';

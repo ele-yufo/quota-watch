@@ -29,6 +29,7 @@ import {
   deepseekProvider,
   openrouterProvider,
   aihubmixProvider,
+  orcarouterProvider,
   glmCnProvider,
   copilotProvider,
 } from '@quota-watch/core';
@@ -108,6 +109,7 @@ async function main(): Promise<void> {
   registry.register(deepseekProvider);
   registry.register(openrouterProvider);
   registry.register(aihubmixProvider);
+  registry.register(orcarouterProvider);
   log('INFO', `Registered providers: ${registry.list().join(', ')}`);
 
   const scheduler = new QuotaScheduler({

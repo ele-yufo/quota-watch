@@ -126,7 +126,15 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
       { key: "manageKey", label: "系统访问令牌（Manage Key）", hint: "console.aihubmix.com → 设置 → 生成系统访问令牌；sk- 推理 key 不能查余额" },
     ],
   },
-  // P2 — not yet wired
+  {
+    slug: "orcarouter",
+    displayName: "OrcaRouter",
+    authKind: "api-key",
+    envVar: "ORC_ROUTER_API_KEY",
+    fields: [
+      { key: "apiKey", label: "API Key", hint: "orcarouter.ai → API keys（本机 ~/.shell_env 有 ORC_ROUTER_API_KEY 可一键导入）" },
+    ],
+  },
   { slug: "copilot", displayName: "GitHub Copilot", authKind: "oauth-file", available: false },
 ];
 

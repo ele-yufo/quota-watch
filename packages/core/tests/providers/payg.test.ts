@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { deepseekProvider } from '../../src/providers/deepseek.js';
 import { openrouterProvider } from '../../src/providers/openrouter.js';
 import { aihubmixProvider } from '../../src/providers/aihubmix.js';
+import { orcarouterProvider } from '../../src/providers/orcarouter.js';
 import type { ProviderConfig } from '../../src/types.js';
 
 function makeConfig(provider: string, overrides?: Partial<ProviderConfig>): ProviderConfig {
@@ -166,5 +167,56 @@ describe('openrouterProvider', () => {
       .toBe('not_configured');
     fetchSpy.mockResolvedValue(jsonResponse(401, { error: 'unauthorized' }));
     expect((await openrouterProvider.fetchQuota(makeConfig('openrouter'))).status).toBe('auth_expired');
+  });
+});
+
+describe('orcarouterProvider', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  beforeEach(() => { fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy); });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  // Live-verified shape (2026-09).
+  const orcaBalance = {
+    object: 'balance',
+    unit: 'USD',
+    paid_balance: 19.976848,
+    free_credit: [{ model: 'orca/dub', balance: 6, unit: 'USD', balance_usd: 6 }],
+    promo_credits: [],
+  };
+
+  it('maps paid balance and model-scoped free credit to balance windows', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(200, orcaBalance));
+    const quota = await orcarouterProvider.fetchQuota(makeConfig('orcarouter'));
+
+    expect(quota.status).toBe('ok');
+    expect(quota.windows).toHaveLength(2);
+    const paid = quota.windows[0]!;
+    expect(paid.name).toBe('balance (USD)');
+    expect(paid.kind).toBe('balance');
+    expect(paid.unit).toBe('usd');
+    expect(paid.remaining).toBeCloseTo(19.98);
+    const free = quota.windows[1]!;
+    expect(free.name).toBe('free credit (orca/dub)');
+    expect(free.remaining).toBe(6);
+  });
+
+  it('sends the bearer token to /v1/balance', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(200, orcaBalance));
+    await orcarouterProvider.fetchQuota(makeConfig('orcarouter'));
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.orcarouter.ai/v1/balance');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test');
+  });
+
+  it('errors instead of fabricating a zero balance when amounts are unparseable', async () => {
+    fetchSpy.mockResolvedValue(jsonResponse(200, { object: 'balance' }));
+    expect((await orcarouterProvider.fetchQuota(makeConfig('orcarouter'))).status).toBe('error');
+  });
+
+  it('not_configured without a key; 401 → auth_expired', async () => {
+    expect((await orcarouterProvider.fetchQuota(makeConfig('orcarouter', { credentials: {} }))).status)
+      .toBe('not_configured');
+    fetchSpy.mockResolvedValue(jsonResponse(401, { error: 'unauthorized' }));
+    expect((await orcarouterProvider.fetchQuota(makeConfig('orcarouter'))).status).toBe('auth_expired');
   });
 });
