@@ -23,6 +23,8 @@ daemon 首次启动会在 `~/.quota-watch/certs/` 用系统 `/usr/bin/openssl` �
 
 ## 安装
 
+CLI 与 daemon 启动时优先使用 `HTTP_PROXY` / `HTTPS_PROXY`（含小写）环境变量；未设置时读取 macOS 已启用的 HTTP/HTTPS 系统代理。代理模式需要 Node 24.14+ 或 25.4+，使用 Node 原生代理支持，不关闭 TLS 校验。本机回环地址始终直连；额外绕过地址可用 `NO_PROXY` 设置。系统代理改动后需重启 daemon 才生效；不支持 PAC / 仅 SOCKS 配置。
+
 前提:已 `pnpm install` 且 `pnpm --filter @quota-watch/cli build`、
 `pnpm --filter @quota-watch/web build`(daemon-worker 和 `.next` 产物存在)。
 

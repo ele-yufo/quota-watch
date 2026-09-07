@@ -85,6 +85,10 @@ describe('httpStatusToQuotaStatus', () => {
 });
 
 describe('fetchJson', () => {
+  it('preserves the network cause code without dumping request details', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } })));
+    expect(await fetchJson('https://x.test/api')).toEqual({ ok: false, status: null, error: 'fetch failed (ECONNRESET)' });
+  });
   it('returns parsed JSON on 200', async () => {
     vi.stubGlobal(
       'fetch',

@@ -36,6 +36,7 @@ import {
 import type { Server } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpServer } from './mcp-server.js';
+import { configureNetwork } from './network.js';
 
 // ── Paths ──────────────────────────────────────────────────────────────
 
@@ -86,6 +87,7 @@ function fmtBytes(n: number): string {
 
 async function main(): Promise<void> {
   log('INFO', `Worker started (pid=${process.pid})`);
+  log('INFO', `Network: ${configureNetwork()}`);
 
   const appConfig = ensureApiToken(loadAppConfig());
   log(

@@ -6,6 +6,9 @@ import { registerConfigCommand } from './commands/config.js';
 import { dashboardCommand } from './commands/dashboard.js';
 import { registerDaemonCommand } from './commands/daemon.js';
 import { runMcpServer } from './mcp-server.js';
+import { configureNetwork } from './network.js';
+
+configureNetwork();
 
 const program = new Command();
 

@@ -117,7 +117,9 @@ export async function fetchJson<T>(
     if (err instanceof DOMException && err.name === 'AbortError') {
       return { ok: false, status: null, error: `Request timed out after ${timeoutMs}ms` };
     }
-    return { ok: false, status: null, error: err instanceof Error ? err.message : String(err) };
+    const cause = err instanceof Error ? err.cause as { code?: unknown } | undefined : undefined;
+    const code = typeof cause?.code === 'string' ? ` (${cause.code})` : '';
+    return { ok: false, status: null, error: (err instanceof Error ? err.message : String(err)) + code };
   } finally {
     clearTimeout(timer);
   }
