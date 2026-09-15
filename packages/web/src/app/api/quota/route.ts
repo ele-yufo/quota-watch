@@ -1,6 +1,7 @@
 import { QuotaDB, buildQuotaResponse } from '@quota-watch/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { requireSession } from '@/lib/session';
 
 const DB_PATH = join(homedir(), '.quota-watch', 'data.db');
 
@@ -9,7 +10,9 @@ const DB_PATH = join(homedir(), '.quota-watch', 'data.db');
  * kind (session → day → week → month). Same shape as the daemon API's /quota
  * so every client renders identically.
  */
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = requireSession(req);
+  if (denied) return denied;
   let db: QuotaDB;
   try {
     db = new QuotaDB(DB_PATH);

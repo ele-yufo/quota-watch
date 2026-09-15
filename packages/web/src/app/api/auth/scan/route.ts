@@ -4,6 +4,7 @@ import {
   getProviderAuthMeta,
 } from '@quota-watch/core';
 import { type NextRequest } from 'next/server';
+import { requireSession } from '@/lib/session';
 
 /**
  * GET /api/auth/scan?slug=claude — detect whether reusable credentials for a
@@ -14,6 +15,8 @@ import { type NextRequest } from 'next/server';
  * credentials can be imported without retyping the cookie.
  */
 export async function GET(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   const slug = request.nextUrl.searchParams.get('slug');
   if (!slug) return Response.json({ error: 'slug required' }, { status: 400 });
 

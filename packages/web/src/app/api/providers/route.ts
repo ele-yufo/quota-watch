@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { type NextRequest } from 'next/server';
+import { requireSession } from '@/lib/session';
 
 const DB_PATH = join(homedir(), '.quota-watch', 'data.db');
 
@@ -25,7 +26,9 @@ function openDb(): QuotaDB | Response {
 }
 
 /** GET — list provider auth metadata + currently configured providers. */
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = requireSession(req);
+  if (denied) return denied;
   const db = openDb();
   if (db instanceof Response) return db;
   try {
@@ -50,6 +53,8 @@ export async function GET() {
  * empty credentials — the adapter reads the CLI file at fetch time.
  */
 export async function POST(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   const body = await request.json().catch(() => ({}));
   const { slug, displayName, apiKey, credentials: bodyCredentials, autoImport } = body as {
     slug?: string;
@@ -127,6 +132,8 @@ export async function POST(request: NextRequest) {
 
 /** DELETE — remove a provider by id. */
 export async function DELETE(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   const id = request.nextUrl.searchParams.get('id');
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
   let db: QuotaDB;
@@ -157,6 +164,8 @@ export async function DELETE(request: NextRequest) {
  * on the dashboard. Credentials stay stored so re-enabling is one click.
  */
 export async function PATCH(request: NextRequest) {
+  const denied = requireSession(request);
+  if (denied) return denied;
   const body = await request.json().catch(() => ({}));
   const { id, enabled } = body as { id?: string; enabled?: boolean };
   if (!id || typeof enabled !== 'boolean') {

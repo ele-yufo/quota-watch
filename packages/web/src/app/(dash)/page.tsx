@@ -7,12 +7,30 @@ import { MagazineDashboard } from "@/components/dashboards/MagazineDashboard";
 import { ControlDock } from "@/components/ControlDock";
 import { Drawer } from "@/components/Drawer";
 
-// Near-realtime dashboard: the daemon polls providers every ~10-15s, the page
-// re-reads the DB on the same cadence.
+// Near-realtime dashboard: the page re-reads the DB every 10s, and every 60s
+// it also forces a provider poll round — otherwise an idle/backed-off daemon
+// can leave the numbers frozen for minutes and the page looks dead even
+// though it re-renders.
 const REFRESH_MS = 10_000;
+const FORCE_POLL_MS = 60_000;
+// A hung GET must never wedge refresh() past its `running` guard — that would
+// silently kill the interval, the button and the visibility refresh at once.
+const FETCH_TIMEOUT_MS = 15_000;
+
+function fetchCapped(input: string, init?: RequestInit): Promise<Response> {
+  // Caller-provided signal wins (the poll POST uses a 35s cap — spreading
+  // init after the default would silently downgrade it to 15s).
+  return fetch(input, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), ...init });
+}
 
 async function loadCards(): Promise<CardData[]> {
-  const res = await fetch("/api/quota", { cache: "no-store" });
+  const res = await fetchCapped("/api/quota", { cache: "no-store" });
+  // 401 = session dead (or a pre-auth stale bundle still running). Navigate —
+  // keeping the last good cards here would freeze a days-old screen forever.
+  if (res.status === 401) {
+    window.location.href = "/login";
+    throw new Error("unauthorized — redirecting to login");
+  }
   if (!res.ok) throw new Error(`quota fetch failed: ${res.status}`);
   const list: QuotaApiProvider[] = await res.json();
   if (!Array.isArray(list)) return [];
@@ -43,7 +61,7 @@ async function loadCards(): Promise<CardData[]> {
 
 async function loadDaemon(): Promise<DaemonStatus> {
   try {
-    const res = await fetch("/api/daemon", { cache: "no-store" });
+    const res = await fetchCapped("/api/daemon", { cache: "no-store" });
     if (!res.ok) return { running: false };
     return (await res.json()) as DaemonStatus;
   } catch {
@@ -58,10 +76,19 @@ export default function Page() {
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [polling, setPolling] = useState(false);
   const [selected, setSelected] = useState<CardData | null>(null);
+  const [pollFailed, setPollFailed] = useState(false);
   const running = useRef(false);
+  const rerunQueued = useRef(false);
+  const refreshRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   const refresh = useCallback(async () => {
-    if (running.current) return;
+    if (running.current) {
+      // A poll (or another caller) is mid-refresh holding pre-poll data —
+      // queue one trailing refresh so this round ends on fresh numbers
+      // instead of silently no-oping.
+      rerunQueued.current = true;
+      return;
+    }
     running.current = true;
     try {
       const [nextCards, nextDaemon] = await Promise.all([loadCards(), loadDaemon()]);
@@ -76,26 +103,59 @@ export default function Page() {
       setStatus((s) => (s === "loading" ? "error" : s));
     } finally {
       running.current = false;
+      if (rerunQueued.current) {
+        rerunQueued.current = false;
+        void refreshRef.current?.();
+      }
     }
   }, []);
 
-  const pollNow = useCallback(async () => {
-    setPolling(true);
-    try {
-      await fetch("/api/daemon/poll", { method: "POST" });
-    } catch {
-      /* daemon down — dashboard shows the offline state; still re-read the DB */
-    } finally {
-      await refresh();
-      setPolling(false);
-    }
+  useEffect(() => {
+    refreshRef.current = refresh;
   }, [refresh]);
+
+  const pollNow = useCallback(
+    async (silent = false) => {
+      if (!silent) setPolling(true);
+      try {
+        // The server allows 30s for a full fan-out (slow upstreams) — a 15s
+        // client abort would flag "failed" a poll that's still running.
+        const res = await fetchCapped("/api/daemon/poll", {
+          method: "POST",
+          signal: AbortSignal.timeout(35_000),
+        });
+        setPollFailed(!res.ok);
+      } catch {
+        // daemon down — dashboard shows the offline state; still re-read the DB
+        setPollFailed(true);
+      } finally {
+        await refresh();
+        if (!silent) setPolling(false);
+      }
+    },
+    [refresh],
+  );
 
   useEffect(() => {
     refresh();
     const id = setInterval(refresh, REFRESH_MS);
-    return () => clearInterval(id);
-  }, [refresh]);
+    // Periodic full refresh: force the daemon to poll providers, then re-read.
+    // Skipped while the tab is hidden (background timers are throttled anyway,
+    // and polling into a hidden tab is wasted provider traffic).
+    const forceId = setInterval(() => {
+      if (!document.hidden) void pollNow(true);
+    }, FORCE_POLL_MS);
+    // Returning to the tab (phone especially) should show fresh data at once.
+    const onVisible = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      clearInterval(forceId);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refresh, pollNow]);
 
   // The drawer's provider disappeared from the latest data (removed in setup,
   // or its rows pruned) — close it instead of showing the frozen snapshot.
@@ -107,7 +167,7 @@ export default function Page() {
 
   return (
     <>
-      <ControlDock polling={polling} onPollNow={pollNow} />
+      <ControlDock polling={polling} pollFailed={pollFailed} onPollNow={pollNow} />
 
       {status === "loading" && <FullScreenNote>loading…</FullScreenNote>}
       {status === "error" && (

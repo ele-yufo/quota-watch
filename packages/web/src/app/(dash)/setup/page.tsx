@@ -49,11 +49,22 @@ export default function SetupPage() {
   const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
 
+  // Dead session (token re-issued, 30d expiry) must bounce to /login — every
+  // other error string ("保存失败"…) makes the user retry a hopeless request.
+  async function guard(res: Response | Promise<Response>): Promise<Response> {
+    const r = await res;
+    if (r.status === 401) {
+      window.location.href = "/login";
+      throw new Error("unauthorized — redirecting to login");
+    }
+    return r;
+  }
+
   const load = useCallback(async () => {
     try {
       const [providersRes, daemonRes] = await Promise.all([
-        fetch("/api/providers", { cache: "no-store" }),
-        fetch("/api/daemon", { cache: "no-store" }),
+        guard(fetch("/api/providers", { cache: "no-store" })),
+        guard(fetch("/api/daemon", { cache: "no-store" })),
       ]);
       // A !ok providers response must surface — otherwise `data` stays null
       // and the user stares at "loading…" forever.
@@ -76,7 +87,7 @@ export default function SetupPage() {
     setBusy(slug);
     setError(null);
     try {
-      const r = await fetch(`/api/auth/scan?slug=${slug}`, { cache: "no-store" });
+      const r = await guard(fetch(`/api/auth/scan?slug=${slug}`, { cache: "no-store" }));
       const res: ScanResp = await r.json();
       setScans((s) => ({ ...s, [slug]: res }));
     } catch {
@@ -90,11 +101,11 @@ export default function SetupPage() {
     setBusy(slug);
     setError(null);
     try {
-      const r = await fetch("/api/providers", {
+      const r = await guard(fetch("/api/providers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(autoImport ? { slug, autoImport: true } : { slug }),
-      });
+      }));
       if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "连接失败"));
       await load();
     } catch {
@@ -110,11 +121,11 @@ export default function SetupPage() {
     setBusy(slug);
     setError(null);
     try {
-      const r = await fetch("/api/providers", {
+      const r = await guard(fetch("/api/providers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug, credentials: values }),
-      });
+      }));
       if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "保存失败"));
       else setFieldValues((v) => ({ ...v, [slug]: {} }));
       await load();
@@ -128,7 +139,7 @@ export default function SetupPage() {
   async function remove(id: string) {
     setError(null);
     try {
-      const r = await fetch(`/api/providers?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const r = await guard(fetch(`/api/providers?id=${encodeURIComponent(id)}`, { method: "DELETE" }));
       if (!r.ok) {
         const body = await r.json().catch(() => null);
         setError(body?.error ?? `移除失败（HTTP ${r.status}）`);
@@ -144,11 +155,11 @@ export default function SetupPage() {
     setBusy(cfg.id);
     setError(null);
     try {
-      const r = await fetch("/api/providers", {
+      const r = await guard(fetch("/api/providers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: cfg.id, enabled: !cfg.enabled }),
-      });
+      }));
       if (!r.ok) setError(await r.json().then((b) => b.error).catch(() => "切换失败"));
       await load();
     } catch {

@@ -1,12 +1,15 @@
 import { loadAppConfig } from '@quota-watch/core';
 import { fetchDaemon } from '@/lib/daemon-fetch';
+import { requireSession } from '@/lib/session';
 
 /**
  * GET /api/daemon — daemon liveness for the dashboard. Proxies the daemon's
  * embedded API /health on localhost; a refused connection means the daemon
  * (or at least its API) isn't running.
  */
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = requireSession(req);
+  if (denied) return denied;
   const config = loadAppConfig();
   const res = await fetchDaemon(config.api.port, '/health', { token: config.api.token, timeoutMs: 2000 });
   if (!res.ok) {

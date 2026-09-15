@@ -17,7 +17,7 @@ export function MagazineDashboard({
   const hasSnapshots = cards.some((c) => c.windows.length > 0);
 
   return (
-    <main className="max-w-[1100px] mx-auto px-4 sm:px-8 pt-8 sm:pt-16 pb-16">
+    <main className="max-w-[1100px] mx-auto px-4 sm:px-8 pt-20 sm:pt-16 pb-16">
       <Header cards={cards} daemon={daemon} updatedAt={updatedAt} />
 
       {daemon !== null && !daemon.running && cards.length > 0 && (
