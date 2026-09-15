@@ -119,6 +119,14 @@ export function ProviderRow({ card, onOpen }: ProviderRowProps) {
         </div>
         <h3 className="font-serif italic text-[17px] leading-tight text-ink truncate">
           {card.displayName}
+          {card.poll?.plan && (
+            <span
+              className="ml-1.5 align-middle font-mono not-italic text-[9px] tracking-[0.14em] uppercase text-ink-3 border border-line-soft rounded px-1 py-px"
+              title="订阅档位（provider API 实时上报）"
+            >
+              {card.poll.plan}
+            </span>
+          )}
         </h3>
       </div>
 

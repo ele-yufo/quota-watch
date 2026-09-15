@@ -139,7 +139,7 @@ describe('daemon API server', () => {
     const res = await api('/quota');
     const body = (await res.json()) as Array<{
       providerId: string;
-      poll: { lastPollAt: string; lastStatus: string; lastError: string | null } | null;
+      poll: { lastPollAt: string; lastStatus: string; lastError: string | null; plan: string | null } | null;
     }>;
     expect(body[0]!.poll).not.toBeNull();
     expect(body[0]!.poll!.lastStatus).toBe('ok');
@@ -149,7 +149,7 @@ describe('daemon API server', () => {
     db.recordPoll('test-1', 'error', 'auth cookie likely expired');
     const res2 = await api('/quota');
     const body2 = (await res2.json()) as Array<{
-      poll: { lastStatus: string; lastError: string | null };
+      poll: { lastStatus: string; lastError: string | null; plan: string | null };
       windows: unknown[];
     }>;
     expect(body2[0]!.poll.lastStatus).toBe('error');

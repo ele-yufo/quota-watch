@@ -121,7 +121,7 @@ async function main(): Promise<void> {
     activeIntervalMs: appConfig.poll.fastMs,
     idleIntervalMs: appConfig.poll.idleMs,
     onQuotaFetched: (providerId, quota) => {
-      db.recordPoll(providerId, 'ok');
+      db.recordPoll(providerId, 'ok', undefined, quota.plan ?? null);
       for (const window of quota.windows) {
         log('INFO', `[${providerId}] ${window.name}: ${window.used}/${window.total} ${window.unit} (${window.remainingPct.toFixed(1)}% remaining)`);
       }

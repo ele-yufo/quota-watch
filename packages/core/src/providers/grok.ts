@@ -131,7 +131,7 @@ export const grokProvider: ProviderAdapter = {
           resetAt,
           unlimited: false,
         };
-        return quotaOk('grok', config.id, 'xai', [window]);
+        return quotaOk('grok', config.id, '', [window]);
       }
 
       // Period known, percent gone (unified billing since 2026-09): the only
@@ -142,13 +142,13 @@ export const grokProvider: ProviderAdapter = {
       // placeholder 0-used/100-total row would read as full headroom in the
       // UI and — worse — get Grok ranked as a fresh channel by
       // recommend_channel. Losing the reset countdown is the honest price.
-      return quotaOk('grok', config.id, 'xai', []);
+      return quotaOk('grok', config.id, '', []);
     }
 
     // The credits view may still carry the legacy fields — prefer them over
     // a second round-trip.
     const inline = legacyWindow(cfg);
-    if (inline) return quotaOk('grok', config.id, 'xai', [inline]);
+    if (inline) return quotaOk('grok', config.id, '', [inline]);
 
     // Legacy fallback — only reachable when the credits view has no
     // currentPeriod at all (real metered monthly-credit accounts, where
@@ -161,7 +161,7 @@ export const grokProvider: ProviderAdapter = {
       return quotaError('grok', config, status, legacy.error);
     }
     const fromLegacy = legacyWindow(legacy.data.config);
-    if (fromLegacy) return quotaOk('grok', config.id, 'xai', [fromLegacy]);
+    if (fromLegacy) return quotaOk('grok', config.id, '', [fromLegacy]);
 
     if (!cfg) {
       return quotaError('grok', config, 'error', 'billing response had no config object');

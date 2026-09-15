@@ -69,7 +69,7 @@ describe('claudeProvider', () => {
     expect(result.status).toBe('ok');
     expect(result.provider).toBe('claude');
     expect(result.account).toBe('claude-main');
-    expect(result.plan).toBe('claude-code');
+    expect(result.plan).toBe('Claude'); // profile unreachable in tests → neutral label
     expect(result.windows).toHaveLength(3);
 
     // session (5h)

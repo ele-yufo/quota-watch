@@ -141,6 +141,14 @@ export class QuotaDB {
         WHERE remaining_pct < 0 OR remaining_pct > 100`);
       this.db.pragma("user_version = 7");
     }
+
+    if (version < 8) {
+      // Subscription tier as reported by the provider's own API (Claude
+      // /api/oauth/profile, Codex usage plan_type). Stored per provider so
+      // the dashboard shows a live plan label instead of a hand-typed name.
+      this.db.exec(`ALTER TABLE provider_poll_state ADD COLUMN plan TEXT`);
+      this.db.pragma("user_version = 8");
+    }
   }
 
   /** v3: token-usage ledger fed by CLI session logs (token monitoring). */
@@ -388,12 +396,31 @@ export class QuotaDB {
       .run(providerId, ...windowNames);
   }
 
-  /** Record a poll attempt (success or failure) — the freshness signal. */
-  recordPoll(providerId: string, status: 'ok' | 'error', error?: string): void {
+  /**
+   * Record a poll attempt — the freshness signal. On success `plan` carries
+   * the provider-reported subscription tier (null when this provider doesn't
+   * report one; that CLEARS a stale label rather than keeping it). Errors
+   * leave the previous plan untouched.
+   */
+  recordPoll(providerId: string, status: 'ok' | 'error', error?: string, plan?: string | null): void {
+    if (status === 'ok') {
+      this.db
+        .prepare(
+          `INSERT INTO provider_poll_state (provider_id, last_poll_at, last_status, last_error, plan)
+           VALUES (?, ?, ?, NULL, ?)
+           ON CONFLICT(provider_id) DO UPDATE SET
+             last_poll_at = excluded.last_poll_at,
+             last_status = excluded.last_status,
+             last_error = NULL,
+             plan = excluded.plan`,
+        )
+        .run(providerId, new Date().toISOString(), status, plan ?? null);
+      return;
+    }
     this.db
       .prepare(
-        `INSERT INTO provider_poll_state (provider_id, last_poll_at, last_status, last_error)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO provider_poll_state (provider_id, last_poll_at, last_status, last_error, plan)
+         VALUES (?, ?, ?, ?, NULL)
          ON CONFLICT(provider_id) DO UPDATE SET
            last_poll_at = excluded.last_poll_at,
            last_status = excluded.last_status,
@@ -402,11 +429,11 @@ export class QuotaDB {
       .run(providerId, new Date().toISOString(), status, error ?? null);
   }
 
-  getPollState(providerId: string): { lastPollAt: string; lastStatus: string; lastError: string | null } | null {
+  getPollState(providerId: string): { lastPollAt: string; lastStatus: string; lastError: string | null; plan: string | null } | null {
     const row = this.db
-      .prepare(`SELECT last_poll_at AS lastPollAt, last_status AS lastStatus, last_error AS lastError
+      .prepare(`SELECT last_poll_at AS lastPollAt, last_status AS lastStatus, last_error AS lastError, plan
                 FROM provider_poll_state WHERE provider_id = ?`)
-      .get(providerId) as { lastPollAt: string; lastStatus: string; lastError: string | null } | undefined;
+      .get(providerId) as { lastPollAt: string; lastStatus: string; lastError: string | null; plan: string | null } | undefined;
     return row ?? null;
   }
 

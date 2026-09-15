@@ -76,7 +76,7 @@ export interface QuotaApiProvider {
    * keeps serving its last good numbers — without this field stale data
    * is indistinguishable from live data.
    */
-  poll: { lastPollAt: string; lastStatus: string; lastError: string | null } | null;
+  poll: { lastPollAt: string; lastStatus: string; lastError: string | null; plan?: string | null } | null;
   windows: Array<{
     windowName: string;
     windowKind: string;

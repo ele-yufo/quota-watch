@@ -96,6 +96,17 @@ export const codexProvider: ProviderAdapter = {
       return quotaError('codex', config, 'error', 'usage response contained no rate-limit windows');
     }
 
-    return quotaOk('codex', config.id, res.data.plan_type, windows);
+    const PLAN_LABELS: Record<string, string> = {
+      pro: 'Pro',
+      business: 'Business',
+      team: 'Team',
+      enterprise: 'Enterprise',
+      free: 'Free',
+      edu: 'Edu',
+    };
+    const rawPlan = typeof res.data.plan_type === 'string' ? res.data.plan_type : '';
+    const plan = PLAN_LABELS[rawPlan.toLowerCase()] ?? rawPlan;
+
+    return quotaOk('codex', config.id, plan, windows);
   },
 };

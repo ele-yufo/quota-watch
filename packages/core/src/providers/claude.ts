@@ -77,6 +77,36 @@ function clearCooldown(providerId: string): void {
   consecutive429.delete(providerId);
 }
 
+// ── Subscription tier (dynamic) ────────────────────────────────────────
+
+interface ClaudeProfileResponse {
+  account?: { has_claude_max?: boolean; has_claude_pro?: boolean };
+  organization?: { organization_type?: string };
+}
+
+const PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile';
+
+/** org type "claude_pro" → "Pro"; falls back to the account booleans. */
+function planFromProfile(p: ClaudeProfileResponse): string | null {
+  const orgType = p.organization?.organization_type;
+  if (typeof orgType === 'string' && orgType.startsWith('claude_')) {
+    const tier = orgType.slice('claude_'.length);
+    if (tier) return tier[0]!.toUpperCase() + tier.slice(1);
+  }
+  if (p.account?.has_claude_max) return 'Max';
+  if (p.account?.has_claude_pro) return 'Pro';
+  return null;
+}
+
+async function fetchPlan(headers: Record<string, string>): Promise<string | null> {
+  try {
+    const res = await fetchJson<ClaudeProfileResponse>(PROFILE_URL, { headers });
+    return res.ok ? planFromProfile(res.data) : null;
+  } catch {
+    return null; // tier label is best-effort — never blocks the quota windows
+  }
+}
+
 // ── Window mapping ─────────────────────────────────────────────────────
 
 const WINDOW_MAP = [
@@ -133,14 +163,14 @@ export const claudeProvider: ProviderAdapter = {
       return quotaError('claude', config, 'error', 'Rate limited (429), cooling down');
     }
 
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'anthropic-beta': 'oauth-2025-04-20',
+    };
+
     const res = await fetchJson<ClaudeUsageResponse>(
       'https://api.anthropic.com/api/oauth/usage',
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'anthropic-beta': 'oauth-2025-04-20',
-        },
-      },
+      { headers },
     );
 
     if (!res.ok) {
@@ -157,7 +187,7 @@ export const claudeProvider: ProviderAdapter = {
     }
 
     clearCooldown(config.id);
-    return quotaOk('claude', config.id, 'claude-code', mapWindows(res.data));
+    return quotaOk('claude', config.id, (await fetchPlan(headers)) ?? 'Claude', mapWindows(res.data));
   },
 };
 

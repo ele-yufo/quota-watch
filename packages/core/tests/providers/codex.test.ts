@@ -150,7 +150,7 @@ describe('codexProvider', () => {
     });
     const result = await codexProvider.fetchQuota(makeConfig());
     expect(result.status).toBe('ok');
-    expect(result.plan).toBe('pro');
+    expect(result.plan).toBe('Pro');
     for (const w of result.windows) {
       expect(w.remaining).toBe(0);
       expect(w.remainingPct).toBe(0);

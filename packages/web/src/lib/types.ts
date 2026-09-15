@@ -53,6 +53,8 @@ export interface PollState {
   lastPollAt: string;
   lastStatus: string;
   lastError: string | null;
+  /** Subscription tier as reported by the provider's own API, if it reports one. */
+  plan?: string | null;
 }
 
 /** One provider row of GET /api/quota. */
