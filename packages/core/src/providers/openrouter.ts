@@ -61,6 +61,6 @@ export const openrouterProvider: ProviderAdapter = {
       resetAt: null,
       unlimited: false,
     };
-    return quotaOk('openrouter', config.id, 'pay-as-you-go', [window]);
+    return quotaOk('openrouter', config.id, 'PAYG', [window]);
   },
 };

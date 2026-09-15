@@ -117,17 +117,19 @@ export function ProviderRow({ card, onOpen }: ProviderRowProps) {
             </span>
           )}
         </div>
-        <h3 className="font-serif italic text-[17px] leading-tight text-ink truncate">
-          {card.displayName}
+        <div className="flex items-baseline gap-1.5 min-w-0">
+          <h3 className="font-serif italic text-[17px] leading-tight text-ink truncate min-w-0">
+            {card.displayName}
+          </h3>
           {card.poll?.plan && (
             <span
-              className="ml-1.5 align-middle font-mono not-italic text-[9px] tracking-[0.14em] uppercase text-ink-3 border border-line-soft rounded px-1 py-px"
+              className="shrink-0 font-mono not-italic text-[9px] tracking-[0.14em] uppercase text-ink-3 border border-line-soft rounded px-1 py-px"
               title="订阅档位（provider API 实时上报）"
             >
               {card.poll.plan}
             </span>
           )}
-        </h3>
+        </div>
       </div>
 
       {/* Windows: session → week → month, columns aligned across rows.

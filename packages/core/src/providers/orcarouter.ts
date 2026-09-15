@@ -80,6 +80,6 @@ export const orcarouterProvider: ProviderAdapter = {
       return quotaError('orcarouter', config, 'error', 'balance response had no parseable balances');
     }
 
-    return quotaOk('orcarouter', config.id, 'pay-as-you-go', windows);
+    return quotaOk('orcarouter', config.id, 'PAYG', windows);
   },
 };

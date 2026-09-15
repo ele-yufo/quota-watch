@@ -69,6 +69,6 @@ export const deepseekProvider: ProviderAdapter = {
       return quotaError('deepseek', config, 'error', 'balance response had no parseable balance_infos');
     }
 
-    return quotaOk('deepseek', config.id, 'pay-as-you-go', windows);
+    return quotaOk('deepseek', config.id, 'PAYG', windows);
   },
 };

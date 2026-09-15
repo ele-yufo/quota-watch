@@ -44,7 +44,7 @@ describe('deepseekProvider', () => {
     const quota = await deepseekProvider.fetchQuota(makeConfig('deepseek'));
 
     expect(quota.status).toBe('ok');
-    expect(quota.plan).toBe('pay-as-you-go');
+    expect(quota.plan).toBe('PAYG');
     const w = quota.windows[0]!;
     expect(w.kind).toBe('balance');
     expect(w.name).toBe('balance (CNY)');

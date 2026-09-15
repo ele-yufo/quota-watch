@@ -60,7 +60,7 @@ export const aihubmixProvider: ProviderAdapter = {
     const remaining = quota / QUOTA_PER_USD;
     const used = usedQuota / QUOTA_PER_USD;
     const total = used + remaining;
-    return quotaOk('aihubmix', config.id, 'pay-as-you-go', [
+    return quotaOk('aihubmix', config.id, 'PAYG', [
       {
         name: 'balance (USD)',
         kind: 'balance',
