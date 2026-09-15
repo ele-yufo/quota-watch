@@ -23,6 +23,7 @@ interface WindowRow {
   displayName: string;
   providerType: string;
   windowName: string;
+  windowKind: string;
   used: number;
   total: number;
   unit: string;
@@ -77,13 +78,14 @@ function render(rows: WindowRow[]): void {
   // Title
   lines.push(boxLine(chalk.bold('quota-watch — AI Quota Monitor'), WIDTH));
 
-  // Subtitle: last updated
-  const latestTs = rows.length > 0
-    ? new Date(rows.reduce((max, r) => r.timestamp > max ? r.timestamp : max, rows[0].timestamp))
-    : new Date();
-  const ago = formatTimeAgo(latestTs);
-  const dateStr = latestTs.toLocaleString('sv-SE', { hour12: false }).replace('T', ' ');
-  lines.push(boxLine(chalk.dim(`Last updated: ${dateStr} (${ago})`), WIDTH));
+  // Subtitle: last updated — omitted entirely on an empty DB; claiming a
+  // fresh timestamp above "No data yet" presents absence as freshness.
+  if (rows.length > 0) {
+    const latestTs = new Date(rows.reduce((max, r) => r.timestamp > max ? r.timestamp : max, rows[0].timestamp));
+    const ago = formatTimeAgo(latestTs);
+    const dateStr = latestTs.toLocaleString('sv-SE', { hour12: false }).replace('T', ' ');
+    lines.push(boxLine(chalk.dim(`Last updated: ${dateStr} (${ago})`), WIDTH));
+  }
 
   // Separator
   lines.push(horizontalLine('├', '─', '┤', WIDTH));
@@ -124,22 +126,22 @@ function render(rows: WindowRow[]): void {
         // For pace: use a simple heuristic based on remaining percentage
         // and reset time. If we have resetAt, estimate pace from % consumed vs % time elapsed.
         let paceValue = 0;
-        if (row.resetAt) {
+        // Pace needs the TRUE window span — name matching called every daily
+        // window "5h" and rendered monthly-at-95% as "under". Kinds are exact.
+        const WINDOW_HOURS: Record<string, number> = { session: 5, day: 24, week: 168, month: 720 };
+        let paceStr: string;
+        const windowHours = WINDOW_HOURS[row.windowKind];
+        if (row.resetAt && windowHours) {
           const resetMs = new Date(row.resetAt).getTime();
-          // Assume window started ~5h ago for session, ~7d for weekly
-          // Use a rough heuristic: pace ≈ consumed_pct / elapsed_pct
-          // For now, derive from remaining: if remaining < 50% and lots of time left, pace is high
           const hoursToReset = (resetMs - Date.now()) / 3_600_000;
-          // Assume session window is 5h, weekly is 168h (7d)
-          const isWeekly = row.windowName.toLowerCase().includes('week') || row.windowName.toLowerCase().includes('7d');
-          const windowHours = isWeekly ? 168 : 5;
           const elapsedHours = Math.max(0, windowHours - hoursToReset);
           const fractionElapsed = windowHours > 0 ? elapsedHours / windowHours : 0;
           const fractionConsumed = usedPct / 100;
           paceValue = fractionElapsed > 0 ? fractionConsumed / fractionElapsed : 0;
+          paceStr = renderPace(paceValue);
+        } else {
+          paceStr = ''; // no span knowledge (balance/unknown) — no pace claim
         }
-
-        const paceStr = renderPace(paceValue);
 
         // Format: "  session (5h)  [████████░░░░░░░░] 65%  🟢  resets 2h15m"
         const pctLabel = `${Math.round(usedPct)}%`;

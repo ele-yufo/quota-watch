@@ -18,7 +18,18 @@ export function statusCommand(program: Command): void {
       const db = new QuotaDB(dbPath);
 
       try {
-        const rows = db.getLatestSnapshots(opts.provider);
+        let rows = db.getLatestSnapshots();
+        if (opts.provider) {
+          // Users type slugs or the 8-char prefix shown by `config list` —
+          // exact-UUID-only matching made this flag silently return nothing.
+          const wanted = opts.provider.toLowerCase();
+          rows = rows.filter(
+            (r) =>
+              r.providerId.toLowerCase() === wanted ||
+              r.providerId.toLowerCase().startsWith(wanted) ||
+              r.providerType.toLowerCase() === wanted,
+          );
+        }
 
         if (rows.length === 0) {
           if (opts.json) {

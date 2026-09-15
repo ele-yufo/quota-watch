@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, openSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { loadAppConfig, saveAppConfig, ensureApiToken, isLoopbackHost } from '@quota-watch/core';
@@ -138,11 +138,21 @@ function startDaemon(options: { lan?: boolean } = {}): void {
   // Use spawn (not fork) to avoid creating an IPC channel.
   // The daemon uses PID files for lifecycle management, not IPC.
   // This eliminates EPIPE race conditions entirely.
+  // stderr goes to the daemon log, not /dev/null — a worker that dies at
+  // module load (native ABI mismatch after a node upgrade) must leave
+  // evidence, and post-spawn liveness check must correct the success line.
+  let stderrFd: number | undefined;
+  try {
+    stderrFd = openSync(logFile, 'a');
+  } catch {
+    /* log file unavailable — spawn anyway */
+  }
   const child = spawn(process.execPath, [workerPath], {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', stderrFd ?? 'ignore'],
     env: { ...process.env },
   });
+  if (stderrFd !== undefined) closeSync(stderrFd);
 
   child.unref();
 
@@ -151,10 +161,30 @@ function startDaemon(options: { lan?: boolean } = {}): void {
     console.log(chalk.green(`✓ Daemon started (pid ${child.pid})`));
     console.log(chalk.dim(`  Log file: ${logFile}`));
     console.log(chalk.dim(`  PID file: ${PID_FILE}`));
+
+    // A worker that dies at boot would otherwise leave "✓ started" on screen
+    // and a PID file pointing at a corpse. Referenced timer: the one-shot CLI
+    // stays alive for the check, and libuv gets the event-loop turns it needs
+    // to reap the child and set exitCode (a blocked wait leaves it a zombie).
+    const pid = child.pid;
+    setTimeout(() => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        console.error(chalk.red(`✗ Daemon exited immediately (code ${child.exitCode ?? child.signalCode}) — see ${logFile}`));
+        console.error(chalk.dim('  Common cause: better-sqlite3 built for a different node version — rebuild with the node that launchd uses.'));
+        if (readPid() === pid) removePid();
+        process.exitCode = 1;
+      }
+    }, 750);
   }
 }
 
 function stopDaemon(): void {
+  if (launchdJobLoaded()) {
+    console.log(chalk.yellow('Daemon is managed by launchd (io.quotawatch.daemon) — it will be relaunched if killed.'));
+    console.log(chalk.dim('Stop it with: launchctl bootout gui/$(id -u)/io.quotawatch.daemon'));
+    return;
+  }
+
   const pid = readPid();
   if (pid === null) {
     console.log(chalk.yellow('No daemon running (no PID file found)'));
@@ -192,6 +222,10 @@ function stopDaemon(): void {
 }
 
 function daemonStatus(): void {
+  if (launchdJobLoaded()) {
+    console.log(chalk.dim('Daemon is launchd-managed (io.quotawatch.daemon) — state via: launchctl list | grep quotawatch'));
+  }
+
   const pid = readPid();
   if (pid === null) {
     console.log(chalk.yellow('Daemon is not running'));

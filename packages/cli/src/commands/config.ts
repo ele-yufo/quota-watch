@@ -44,6 +44,7 @@ interface ProviderMeta {
   slug: string;
   displayName: string;
   adapter: ProviderAdapter;
+  authKind: ProviderAuthMeta['authKind'];
   credentialPrompts: Array<{
     name: string;
     message: string;
@@ -90,6 +91,7 @@ const PROVIDERS: ProviderMeta[] = PROVIDER_AUTH_META
     slug: m.slug,
     displayName: m.displayName,
     adapter: ADAPTER_BY_SLUG[m.slug]!,
+    authKind: m.authKind,
     credentialPrompts: promptsFor(m),
   }));
 
@@ -184,6 +186,15 @@ async function cmdAdd(providerSlug: string | undefined): Promise<void> {
     if (value === undefined) {
       console.log(chalk.yellow('Cancelled.'));
       return;
+    }
+    if (typeof value !== 'string' || !value.trim()) {
+      // api-key providers die loudly on blank keys; oauth-file providers
+      // intentionally store empty credentials (the adapter reads the CLI
+      // credential file at fetch time), so blanks stay legal there.
+      if (meta.authKind === 'api-key') {
+        console.error(chalk.red(`Empty value for "${prompt.message}" — provider not saved. Re-run config add.`));
+        return;
+      }
     }
     credentials[prompt.name] = value;
   }
@@ -281,7 +292,16 @@ async function cmdTest(providerIdOrName: string | undefined): Promise<void> {
 
     console.log(chalk.dim(`Testing connection to ${meta.displayName}...`));
 
-    const result = await fetchWithRefresh(target, meta.adapter);
+    // Sibling keys matter here too: without them the env-var override
+    // substitutes the shell's key and the test can "pass" for a different
+    // account than the one stored under this config.
+    const siblingApiKeys = openDB()
+      .listProviders()
+      .filter((p) => p.provider === target.provider && p.id !== target.id)
+      .map((p) => p.credentials.apiKey)
+      .filter((k): k is string => k !== undefined);
+
+    const result = await fetchWithRefresh(target, meta.adapter, { siblingApiKeys });
 
     if (result.status === 'ok') {
       console.log(chalk.green(`✓ Connection successful!`));

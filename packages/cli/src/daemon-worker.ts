@@ -206,8 +206,16 @@ async function main(): Promise<void> {
   const legacyDb = join(DATA_DIR, 'quota-watch.db');
   if (existsSync(legacyDb) && !existsSync(`${legacyDb}.bak`)) {
     try {
+      // Retire db+wal+shm as a trio, byte-for-byte. Opening the file here
+      // would run migrations and mutate the backup; and a WAL left behind
+      // holds committed rows the .bak alone lacks — so all three travel
+      // together and a future restore renames them all back.
       renameSync(legacyDb, `${legacyDb}.bak`);
-      log('INFO', 'Retired legacy file: quota-watch.db → quota-watch.db.bak');
+      for (const suffix of ['-wal', '-shm']) {
+        const side = `${legacyDb}${suffix}`;
+        if (existsSync(side)) renameSync(side, `${side}.bak`);
+      }
+      log('INFO', 'Retired legacy file: quota-watch.db → quota-watch.db.bak (incl. wal/shm if present)');
     } catch {
       /* best effort */
     }

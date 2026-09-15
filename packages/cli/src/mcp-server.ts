@@ -33,7 +33,8 @@ interface WindowView {
   prediction: {
     ratePerHour: number;
     exhaustionAt: string | null;
-    hoursRemaining: number;
+    /** Hours until exhaustion; null when burn is zero (never exhausts). */
+    hoursRemaining: number | null;
     willExhaustBeforeReset: boolean;
   } | null;
 }
@@ -64,9 +65,11 @@ function windowView(
       prediction = {
         ratePerHour: Math.round(p.ratePerHour * 100) / 100,
         exhaustionAt: p.exhaustionAt,
+        // Infinity serializes to JSON `null` anyway — emit null explicitly so
+        // the declared shape matches the wire.
         hoursRemaining: Number.isFinite(p.hoursRemaining)
           ? Math.round(p.hoursRemaining * 10) / 10
-          : Infinity,
+          : null,
         willExhaustBeforeReset: p.willExhaustBeforeReset,
       };
     }
@@ -133,9 +136,17 @@ export function createMcpServer(db: QuotaDB): McpServer {
 
       const ranked = providers.map((p) => {
         const windows = snapshots.filter((s) => s.providerId === p.id);
-        const session = windows.find((w) => w.windowKind === 'session');
-        const week = windows.find((w) => w.windowKind === 'week');
-        const anchor = session ?? week ?? null;
+        // Multiple windows can share a kind (Antigravity: two weekly buckets).
+        // The binding constraint is the WORST of each kind, not the first hit.
+        const worstOf = (kind: string) => {
+          const same = windows.filter((w) => w.windowKind === kind);
+          return same.length ? same.reduce((a, b) => (a.remainingPct <= b.remainingPct ? a : b)) : undefined;
+        };
+        const session = worstOf('session');
+        const day = worstOf('day');
+        const week = worstOf('week');
+        const month = worstOf('month');
+        const anchor = session ?? day ?? week ?? month ?? null;
 
         const reasons: string[] = [];
         let score: number | null = null;
@@ -166,9 +177,17 @@ export function createMcpServer(db: QuotaDB): McpServer {
               reasons.push('resets within 1h (headroom replenishes soon)');
             }
           }
-          if (week && session && week.remainingPct < session.remainingPct) {
-            score -= (session.remainingPct - week.remainingPct) / 10;
-            reasons.push(`weekly tighter at ${week.remainingPct.toFixed(0)}%`);
+          // Tighter long windows each bleed score — one penalty per window
+          // kind (the old explicit weekly block double-charged with the loop).
+          for (const [w, label] of [
+            [day, 'daily'],
+            [week, 'weekly'],
+            [month, 'monthly'],
+          ] as const) {
+            if (w && w.remainingPct < anchor.remainingPct) {
+              score -= (anchor.remainingPct - w.remainingPct) / 10;
+              reasons.push(`${label} tighter at ${w.remainingPct.toFixed(0)}%`);
+            }
           }
           if (prefer && (p.id.includes(prefer) || p.provider.includes(prefer))) {
             score += 5;
@@ -177,6 +196,18 @@ export function createMcpServer(db: QuotaDB): McpServer {
           if (anchor.remainingPct < floor) {
             score = null;
             reasons.push(`below floor (${floor}%) — excluded`);
+          }
+          // A fresh session on an exhausted day/week/month is NOT headroom:
+          // the longer windows gate total dispatch, so any of them below the
+          // floor excludes too.
+          const gated = [day, week, month].find(
+            (w) => w && w.remainingPct < floor,
+          );
+          if (score !== null && gated) {
+            score = null;
+            reasons.push(
+              `${gated.windowName} below floor (${gated.remainingPct.toFixed(0)}%) — excluded`,
+            );
           }
         }
 

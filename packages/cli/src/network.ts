@@ -29,7 +29,16 @@ export function configureNetwork(): string {
   const configure = (http as typeof http & {
     setGlobalProxyFromEnv?: (env: NodeJS.ProcessEnv) => unknown;
   }).setGlobalProxyFromEnv;
-  if (!configure) throw new Error('Proxy support requires Node 24.14+ or 25.4+');
+  if (!configure) {
+    // Old-but-supported Node (20/22): degrade to direct instead of killing
+    // every CLI invocation at import time — a proxy is an optimization, not
+    // a precondition, and the daemon polls local + domestic endpoints fine.
+    console.error(
+      '[quota-watch] proxy configured but this Node lacks native proxy support ' +
+        '(need 24.14+/25.4+) — continuing with direct connections',
+    );
+    return 'direct (proxy unsupported on this node)';
+  }
   configure(env);
   return 'proxy enabled (environment or macOS system settings)';
 }
