@@ -110,10 +110,10 @@ claude mcp add quota-watch --transport http https://<公网IP>:3737/mcp \
 | Kimi | 5h session、7d weekly | Kimi Code API key |
 | Antigravity | 5h + weekly Gemini 池、5h + weekly Claude+GPT 池 | 优先读本地运行中 IDE 的 language server(Connect RPC,免凭证),走 `RetrieveUserQuotaSummary`——与 IDE 自己的配额界面同源;IDE 未开时回退 `antigravity-usage` CLI 的 token 存储(只有 5h) |
 | Grok | 月度 credits | 复用 `grok login` / cliproxyapi 共享的 xAI OAuth 存储(`~/.cli-proxy-api/xai-*.json`),自动刷新 |
-| DeepSeek | 账户余额(CNY/USD) | 按量付费 API key;可从 `$DEEPSEEK_API_KEY` 一键导入 |
-| OpenRouter | 累计 credits vs 用量 | 按量付费 API key;可从 `$OPENROUTER_API_KEY` 一键导入 |
+| DeepSeek | 账户余额(CNY/USD) | 按量付费 API key;每轮轮询实时读取 `~/.shell_env` 的 `$DEEPSEEK_API_KEY`（DB 值仅回退） |
+| OpenRouter | 累计 credits vs 用量 | 按量付费 API key;每轮轮询实时读取 `~/.shell_env` 的 `$OPENROUTER_API_KEY`（DB 值仅回退） |
 | AIHubMix | 账户余额(USD) | console.aihubmix.com → 设置里的系统访问令牌(Manage Key);sk- 推理 key 查不了余额 |
-| OrcaRouter | 账户余额(USD) + 按模型的免费额度 | 按量付费 API key;可从 `$ORC_ROUTER_API_KEY` 一键导入 |
+| OrcaRouter | 账户余额(USD) + 按模型的免费额度 | 按量付费 API key;每轮轮询实时读取 `~/.shell_env` 的 `$ORC_ROUTER_API_KEY`（DB 值仅回退） |
 
 *路线图:* **GitHub Copilot** 适配器(月度请求额度)已实现,但凭据接入尚未接进 app。
 

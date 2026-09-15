@@ -55,7 +55,16 @@ chmod 600 ~/.quota-watch/frpc.toml   # 内含密钥
 ```
 
 `frpc.toml` 默认映射 `3737`(daemon API / 远程 MCP)和 `3000`(可选,web;不想
-公开就删掉那个 `[[proxies]]` 块——web 无鉴权,暴露即等于公开你的配额视图)。
+公开就删掉那个 `[[proxies]]` 块)。
+
+## Web 登录会话
+
+web 有自己的应用层认证(2026-09-15 起,取代 ECS 侧 Basic Auth 门禁):首次访问
+跳 `/login`,输入访问口令后种一枚 **30 天 HttpOnly 签名 cookie**,之后刷新、
+重开浏览器都不再要认证。口令即 `~/.quota-watch/config.json` 的 `api.token`
+(可用环境变量 `QW_SESSION_SECRET` 单独覆盖;config 无 token 的环回部署则完全
+免认证,与 daemon 的模型一致)。所有页面与 `/api/*` 都被会话守卫——包括 frp
+侧门直连 `:3000` 的路径,`/login`、`/api/auth/login|logout` 除外。
 
 > **注意**:`~/.quota-watch/frpc.toml` 含 frps token,**不入 git**(仓库里只有
 > `.example` 占位)。frpc↔frps 这一跳在 frp 0.52+ 默认 TLS 加密;客户端→frps

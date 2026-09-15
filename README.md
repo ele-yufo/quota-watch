@@ -130,10 +130,10 @@ security notes.
 | Kimi | 5h session, 7d weekly | Kimi Code API key |
 | Antigravity | 5h + weekly Gemini pool, 5h + weekly Claude+GPT pool | LOCAL first: reads the running IDE's language server (Connect RPC, no credentials) via `RetrieveUserQuotaSummary` — the same data the IDE's own quota UI shows; falls back to the `antigravity-usage` CLI token store (5h only) |
 | Grok | monthly credits | reuses the xAI OAuth store shared by `grok login` / cliproxyapi (`~/.cli-proxy-api/xai-*.json`), auto-refresh |
-| DeepSeek | account balance (CNY/USD) | pay-as-you-go API key; one-click import from `$DEEPSEEK_API_KEY` |
-| OpenRouter | lifetime credits vs usage | pay-as-you-go API key; one-click import from `$OPENROUTER_API_KEY` |
+| DeepSeek | account balance (CNY/USD) | pay-as-you-go API key; read live from `$DEEPSEEK_API_KEY` in `~/.shell_env` each poll (DB value is fallback) |
+| OpenRouter | lifetime credits vs usage | pay-as-you-go API key; read live from `$OPENROUTER_API_KEY` in `~/.shell_env` each poll (DB value is fallback) |
 | AIHubMix | account balance (USD) | Manage Key (系统访问令牌) from console.aihubmix.com → settings — the sk- inference key cannot read balances |
-| OrcaRouter | account balance (USD) + model-scoped free credit | pay-as-you-go API key; one-click import from `$ORC_ROUTER_API_KEY` |
+| OrcaRouter | account balance (USD) + model-scoped free credit | pay-as-you-go API key; read live from `$ORC_ROUTER_API_KEY` in `~/.shell_env` each poll (DB value is fallback) |
 
 *Roadmap:* a **GitHub Copilot** adapter (monthly request allowances) is implemented but its credential setup isn't wired into the app yet.
 
