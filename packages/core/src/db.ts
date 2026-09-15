@@ -146,7 +146,15 @@ export class QuotaDB {
       // Subscription tier as reported by the provider's own API (Claude
       // /api/oauth/profile, Codex usage plan_type). Stored per provider so
       // the dashboard shows a live plan label instead of a hand-typed name.
-      this.db.exec(`ALTER TABLE provider_poll_state ADD COLUMN plan TEXT`);
+      // Column-existence guard: an ALTER is not idempotent — a crash between
+      // the ALTER and the version bump would otherwise fail every boot with
+      // "duplicate column name".
+      const pollCols = this.db
+        .prepare(`PRAGMA table_info(provider_poll_state)`)
+        .all() as Array<{ name: string }>;
+      if (!pollCols.some((c) => c.name === "plan")) {
+        this.db.exec(`ALTER TABLE provider_poll_state ADD COLUMN plan TEXT`);
+      }
       this.db.pragma("user_version = 8");
     }
   }
