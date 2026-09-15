@@ -192,11 +192,20 @@ export class QuotaDB {
     }
   }
 
-  /** Delete snapshots older than the given number of days. */
+  /**
+   * Delete snapshots older than the given number of days. The newest row of
+   * every provider×window is always kept: a quiet channel that hasn't changed
+   * in 30 days would otherwise lose its ONLY row (writes are change-only) and
+   * vanish from the UI right after a perfectly successful poll.
+   */
   cleanupOldData(daysToKeep: number = 30): number {
     const cutoff = new Date(Date.now() - daysToKeep * 86_400_000).toISOString();
     const result = this.db
-      .prepare('DELETE FROM quota_snapshots WHERE timestamp < ?')
+      .prepare(`DELETE FROM quota_snapshots
+                WHERE timestamp < ?
+                  AND id NOT IN (
+                    SELECT MAX(id) FROM quota_snapshots GROUP BY provider_id, window_name
+                  )`)
       .run(cutoff);
     return result.changes;
   }
@@ -209,6 +218,11 @@ export class QuotaDB {
    */
   performMaintenance(daysToKeepSnapshots: number = 30): void {
     this.cleanupOldData(daysToKeepSnapshots);
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
+  /** Flush the WAL into the main db file (pre-rename / backup hygiene). */
+  checkpointWal(): void {
     this.db.pragma('wal_checkpoint(TRUNCATE)');
   }
 
@@ -319,14 +333,22 @@ export class QuotaDB {
 
     const latest = this.db
       .prepare(
-        `SELECT used, total, unit, reset_at FROM quota_snapshots
+        `SELECT used, total, unit, window_kind, reset_at FROM quota_snapshots
          WHERE provider_id = ? AND window_name = ?
          ORDER BY id DESC LIMIT 1`
       )
-      .get(providerId, snap.windowName) as { used: number; total: number; unit: string; reset_at: string | null } | undefined;
+      .get(providerId, snap.windowName) as { used: number; total: number; unit: string; window_kind: string | null; reset_at: string | null } | undefined;
 
+    // reset_at compares at MINUTE granularity: some adapters can only parse
+    // human text ("1 hour 56 minutes") floored to minutes, so their computed
+    // reset instant drifts up to 59s between polls — exact comparison would
+    // defeat change-only writes and write a row per poll per window.
+    const resetMinute = (iso: string | null | undefined) => (iso ? iso.slice(0, 16) : null);
+    const snapKind = snap.windowKind ?? classifyWindowKind(snap.windowName);
     if (latest && latest.used === snap.used && latest.total === snap.total
-        && latest.unit === snap.unit && (latest.reset_at ?? null) === (snap.resetAt ?? null)) {
+        && latest.unit === snap.unit
+        && (latest.window_kind ?? null) === snapKind
+        && resetMinute(latest.reset_at) === resetMinute(snap.resetAt ?? null)) {
       return false;
     }
 
@@ -347,6 +369,23 @@ export class QuotaDB {
         resetAt: snap.resetAt,
       });
     return true;
+  }
+
+  /**
+   * Delete snapshot rows for the named windows only. The scheduler calls this
+   * after a window has been missing from consecutive successful polls (renamed
+   * or retired upstream) — a blanket "delete everything not in the current
+   * set" would erase history during transient adapter fallbacks.
+   */
+  pruneWindows(providerId: string, windowNames: string[]): void {
+    if (windowNames.length === 0) return;
+    const placeholders = windowNames.map(() => '?').join(',');
+    this.db
+      .prepare(
+        `DELETE FROM quota_snapshots
+         WHERE provider_id = ? AND window_name IN (${placeholders})`,
+      )
+      .run(providerId, ...windowNames);
   }
 
   /** Record a poll attempt (success or failure) — the freshness signal. */

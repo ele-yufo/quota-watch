@@ -90,7 +90,7 @@ describe('kimiProvider', () => {
     // detail has no `used` field → used = limit - remaining = 100 - 100 = 0
     expect(session.used).toBe(0);
     expect(session.total).toBe(100);
-    expect(session.unit).toBe('percent');
+    expect(session.unit).toBe('requests');
     expect(session.remaining).toBe(100);
     expect(session.remainingPct).toBe(100);
     expect(session.resetAt).toBe('2026-07-02T04:52:58.960484Z');
@@ -101,7 +101,7 @@ describe('kimiProvider', () => {
     expect(weekly.name).toBe('weekly (7d)');
     expect(weekly.used).toBe(16);
     expect(weekly.total).toBe(100);
-    expect(weekly.unit).toBe('percent');
+    expect(weekly.unit).toBe('requests');
     expect(weekly.remaining).toBe(84);
     expect(weekly.remainingPct).toBe(84);
     expect(weekly.resetAt).toBe('2026-07-03T12:52:58.960484Z');
@@ -287,7 +287,9 @@ describe('kimiProvider', () => {
     expect(result.windows[0].name).toBe('session (5h)');
   });
 
-  it('returns empty windows when both usage and limits are missing', async () => {
+  it('fails the poll when both usage and limits are unparseable', async () => {
+    // empty-ok would mark the poll healthy AND prune stored history via the
+    // scheduler — an unparseable response is an error, not an empty account.
     fetchSpy.mockResolvedValue({
       ok: true,
       status: 200,
@@ -295,8 +297,7 @@ describe('kimiProvider', () => {
     });
 
     const result = await kimiProvider.fetchQuota(makeConfig());
-    expect(result.status).toBe('ok');
-    expect(result.plan).toBe('kimi-code');
-    expect(result.windows).toEqual([]);
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('no parseable');
   });
 });

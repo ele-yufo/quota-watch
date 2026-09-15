@@ -8,7 +8,7 @@
  * startup, and the CA file itself is copied to remote machines out-of-band.
  */
 import { execFileSync } from "node:child_process";
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash, createPublicKey, X509Certificate } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -81,7 +81,43 @@ export function ensureTlsConfig(certsDir: string): TlsConfig {
   // in the last 30 days of the CA's life. A regenerated CA MUST take the
   // server cert with it — a server cert signed by the old CA fails validation
   // against the new one.
-  const caRegen = !existsSync(caKey) || !existsSync(caCert) || (existsSync(caCert) && certLifetimeLeftMs(caCert) < RENEW_WITHIN_MS);
+  // Existence is not validity: a truncated/partially-written key parses for
+  // no one and would leave TLS dead on every boot. Unparseable = regenerate.
+  const keyParses = (path: string): boolean => {
+    if (!existsSync(path)) return false;
+    try {
+      createPublicKey(readFileSync(path));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  // A parseable CA key + cert can still belong to DIFFERENT generations
+  // (interrupted rotation) — renewal would sign with a key that doesn't match
+  // the cert clients pin, failing every subsequent boot. Verify the pairing.
+  const caPairMismatch =
+    keyParses(caKey) &&
+    existsSync(caCert) &&
+    (() => {
+      try {
+        const certPub = new X509Certificate(readFileSync(caCert)).publicKey.export({
+          type: "spki",
+          format: "pem",
+        });
+        const keyPub = createPublicKey(readFileSync(caKey)).export({
+          type: "spki",
+          format: "pem",
+        });
+        return certPub !== keyPub;
+      } catch {
+        return true;
+      }
+    })();
+  const caRegen =
+    !keyParses(caKey) ||
+    !existsSync(caCert) ||
+    caPairMismatch ||
+    (existsSync(caCert) && certLifetimeLeftMs(caCert) < RENEW_WITHIN_MS);
   if (caRegen) {
     genKeyTo(caKey);
     // basicConstraints=CA:TRUE is REQUIRED — without it Node's TLS stack may
@@ -110,7 +146,39 @@ export function ensureTlsConfig(certsDir: string): TlsConfig {
       }
     })();
   const serverExpired = existsSync(serverCert) && certLifetimeLeftMs(serverCert) < RENEW_WITHIN_MS;
-  if (!existsSync(serverKey) || !existsSync(serverCert) || caRegen || serverExpired || serverMismatch) {
+  // A cert can chain-verify against the CA yet belong to a DIFFERENT key
+  // (interrupted rotation leaves crt+key from different generations): every
+  // TLS handshake then dies with ERR_OSSL_X509_KEY_VALUES_MISMATCH and the
+  // chain check above never notices. Compare public keys directly.
+  const serverKeyMismatch =
+    existsSync(serverKey) &&
+    existsSync(serverCert) &&
+    (() => {
+      try {
+        const certPub = new X509Certificate(readFileSync(serverCert)).publicKey.export({
+          type: "spki",
+          format: "pem",
+        });
+        const keyPub = createPublicKey(readFileSync(serverKey)).export({
+          type: "spki",
+          format: "pem",
+        });
+        return certPub !== keyPub;
+      } catch {
+        // Unreadable/corrupt cert or key must REGENERATE, not pass: existence
+        // checks above already handled the missing case, so a parse failure
+        // here means damaged material — exactly the self-heal case.
+        return true;
+      }
+    })();
+  if (
+    !existsSync(serverKey) ||
+    !existsSync(serverCert) ||
+    caRegen ||
+    serverExpired ||
+    serverMismatch ||
+    serverKeyMismatch
+  ) {
     // Clients only pin the CA fingerprint, but the server cert still needs a
     // SAN covering 127.0.0.1 — Node's built-in hostname verification on the
     // CLI/web side checks it. LAN IPs are covered by the pin, not the SAN.

@@ -169,6 +169,10 @@ function connectRequest<T>(opts: ConnectRequestOptions): Promise<{ status: numbe
             resolve({ status, data: null });
           }
         });
+        // The IDE can die mid-body: without these the promise never settles
+        // and the poll (and any Google fallback) hangs forever.
+        res.on('error', reject);
+        res.on('aborted', () => reject(new LocalUnavailableError('connect response aborted mid-body')));
       },
     );
     req.on('error', reject);

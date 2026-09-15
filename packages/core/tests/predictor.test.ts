@@ -60,12 +60,25 @@ describe("predictConsumption", () => {
   // ── Rate calculation ──────────────────────────────────────────────
 
   it("calculates rate from two snapshots 1 hour apart", () => {
+    // Change-only persistence: the last row was written when the value moved
+    // (11:00) and still holds at fake-now 12:00 — the span reaches the present.
     const snaps = [
-      makeSnapshot({ timestamp: "2026-06-30T10:00:00.000Z", used: 30 }),
-      makeSnapshot({ timestamp: "2026-06-30T11:00:00.000Z", used: 50 }),
+      makeSnapshot({ timestamp: "2026-06-30T11:00:00.000Z", used: 30 }),
+      makeSnapshot({ timestamp: "2026-06-30T12:00:00.000Z", used: 50 }),
     ];
     const result = predictConsumption(snaps, 50, 100, null);
-    expect(result.ratePerHour).toBe(20); // (50-30)/1 hour
+    expect(result.ratePerHour).toBe(20); // (50-30)/1 hour up to now
+  });
+
+  it("decays the rate over a quiet tail after a burst", () => {
+    // Burst 10:00→10:30 then nothing: the stale first→last span (0.5h) would
+    // freeze the rate at 80/h; measuring to now (2h) halves it to 20/h.
+    const snaps = [
+      makeSnapshot({ timestamp: "2026-06-30T10:00:00.000Z", used: 10 }),
+      makeSnapshot({ timestamp: "2026-06-30T10:30:00.000Z", used: 50 }),
+    ];
+    const result = predictConsumption(snaps, 50, 100, null);
+    expect(result.ratePerHour).toBe(20);
   });
 
   it("calculates rate from snapshots spanning multiple hours", () => {
@@ -103,10 +116,11 @@ describe("predictConsumption", () => {
   // ── Exhaustion prediction ─────────────────────────────────────────
 
   it("predicts exhaustion time based on rate", () => {
-    // Rate = 10/hour, remaining = 50, so 5 hours until exhaustion
+    // Rate = 10/hour (30→40 over the hour up to fake-now), remaining = 50,
+    // so 5 hours until exhaustion
     const snaps = [
-      makeSnapshot({ timestamp: "2026-06-30T10:00:00.000Z", used: 30 }),
-      makeSnapshot({ timestamp: "2026-06-30T11:00:00.000Z", used: 40 }),
+      makeSnapshot({ timestamp: "2026-06-30T11:00:00.000Z", used: 30 }),
+      makeSnapshot({ timestamp: "2026-06-30T12:00:00.000Z", used: 40 }),
     ];
     const result = predictConsumption(snaps, 50, 100, null);
     expect(result.ratePerHour).toBe(10);

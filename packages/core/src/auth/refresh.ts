@@ -14,9 +14,10 @@
  *
  * Endpoints reverse-engineered from Claude Code 2.1.196 and Codex 0.137.0.
  */
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { antigravityTokensPath, grokTokensPath } from "./credential-source.js";
 
 /** Refresh HTTP timeout — a hung token endpoint must not wedge the poll loop. */
@@ -208,6 +209,55 @@ async function refreshWithSpec(
  * if the provider isn't file-based or the refresh failed (caller treats as
  * needs-relogin).
  */
+// ── macOS Keychain fallback (Claude only) ──────────────────────────────
+// Claude Code on macOS may store the OAuth blob in the login Keychain
+// (service "Claude Code-credentials", same JSON shape) instead of
+// .credentials.json. Keychain-only installs could never refresh: the refresher
+// read a missing file and gave up, so the access token expired forever. The
+// blob travels through the `security` CLI both ways — note the JSON passes
+// as an argv briefly during the write, the same exposure the official CLI
+// tooling accepts.
+
+const KEYCHAIN_SERVICE = "Claude Code-credentials";
+
+function keychainRead(): { raw: string; account: string } | null {
+  if (platform() !== "darwin") return null;
+  try {
+    const raw = execFileSync(
+      "security",
+      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+      { encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    let account = "";
+    try {
+      const attrs = execFileSync(
+        "security",
+        ["find-generic-password", "-s", KEYCHAIN_SERVICE],
+        { encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] },
+      );
+      account = attrs.match(/^\s*"acct"<blob>="(.*)"\s*$/m)?.[1] ?? "";
+    } catch {
+      account = "";
+    }
+    return { raw, account };
+  } catch {
+    return null;
+  }
+}
+
+function keychainWrite(account: string, json: string): boolean {
+  try {
+    execFileSync(
+      "security",
+      ["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", account, "-w", json],
+      { timeout: 5000, stdio: ["ignore", "ignore", "ignore"] },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function refreshAndPersist(providerSlug: string): Promise<RefreshedTokens | null> {
   const spec = SPECS.find((s) => s.slug === providerSlug);
   if (!spec) return null;
@@ -215,17 +265,60 @@ export async function refreshAndPersist(providerSlug: string): Promise<Refreshed
   const filePath = spec.filePath();
   if (!filePath) return null;
 
-  let raw: Record<string, unknown>;
+  let raw: Record<string, unknown> | null = null;
+  let fromKeychain = false;
+  let rt: string | undefined;
   try {
     raw = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+    rt = raw ? spec.readRefreshToken(raw) : undefined;
   } catch {
-    return null;
+    // file missing/unreadable — claude falls back to the Keychain blob below
   }
-
-  const rt = spec.readRefreshToken(raw);
-  if (!rt) return null;
+  // Keychain fallback needs the file to lack a refresh token entirely — a
+  // file that EXISTS but holds no OAuth creds ({}, stale shape) must not
+  // block it, matching the credential reader's own fallback order.
+  if (!rt && spec.slug === "claude") {
+    const kc = keychainRead();
+    if (kc) {
+      try {
+        const parsed = JSON.parse(kc.raw) as Record<string, unknown>;
+        const krt = spec.readRefreshToken(parsed);
+        if (krt) {
+          raw = parsed;
+          rt = krt;
+          fromKeychain = true;
+        }
+      } catch {
+        /* keychain blob unparseable — give up below */
+      }
+    }
+  }
+  if (!raw || !rt) return null;
 
   const refreshed = await refreshWithSpec(spec, rt);
+  if (!refreshed) return refreshed;
+
+  if (fromKeychain) {
+    // CAS against the Keychain blob: if someone else rotated it mid-flight,
+    // their state is newer — keep it, use our tokens in-memory only. Without
+    // the item's account attribute a targeted -U is impossible — skip the
+    // write rather than create a second item while the ORIGINAL keeps the
+    // now-invalidated refresh token.
+    const kc = keychainRead();
+    if (kc && kc.account) {
+      try {
+        const now = JSON.parse(kc.raw) as Record<string, unknown>;
+        if (spec.readRefreshToken(now) === rt) {
+          spec.writeTokens(now, refreshed);
+          if (keychainWrite(kc.account, JSON.stringify(now))) return refreshed;
+        }
+      } catch {
+        /* fall through — in-memory tokens still valid */
+      }
+    }
+    return refreshed;
+  }
+
   if (refreshed) {
     try {
       // Compare-and-swap against the shared credential file: another process

@@ -76,6 +76,7 @@ function makeMockDb(
       db.snapshots.push({ snap, providerId });
       return true; // change-only writes: mock always "changed"
     },
+    pruneStaleWindows(_providerId: string, _keepNames: string[]) {},
   } as unknown as QuotaDB & { snapshots: Array<{ snap: unknown; providerId: string }> };
   return db;
 }
@@ -399,6 +400,35 @@ describe('QuotaScheduler', () => {
   });
 
   // ── Stores snapshots in DB ───────────────────────────────────────
+
+  it('forced polls respect the adapter minPollIntervalMs floor', async () => {
+    const quota = makeQuota(50);
+    const fetchSpy = vi.fn(async () => quota);
+    const adapter: ProviderAdapter = {
+      id: 'test',
+      displayName: 'Test',
+      minPollIntervalMs: 300_000, // claude-style rate-limited upstream
+      fetchQuota: fetchSpy as unknown as ProviderAdapter['fetchQuota'],
+    };
+    const registry = makeMockRegistry(adapter);
+    const db = makeMockDb([makeProviderConfig()]);
+    const scheduler = new QuotaScheduler({ registry, db });
+
+    // Scheduled tick starts the clock, then back-to-back forced polls inside
+    // the window are dropped — the dashboard's 60s auto-refresh must not
+    // hammer a 5-minute-floor upstream.
+    await scheduler.pollNow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await scheduler.pollNow();
+    await scheduler.pollNow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // Once the floor elapses, polling resumes.
+    vi.advanceTimersByTime(300_001);
+    await scheduler.pollNow();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    scheduler.stop();
+  });
 
   it('stores snapshots in DB for each window', async () => {
     const quota: ProviderQuota = {

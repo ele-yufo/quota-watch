@@ -24,6 +24,8 @@ const DEFAULT_BASE_MS = 15_000;
 const DEFAULT_ACTIVE_MS = 10_000;
 const DEFAULT_IDLE_MS = 60_000;
 const RECONCILE_MS = 30_000;
+/** How long a window must be absent from successful polls before its rows go. */
+const MISSING_WINDOW_TTL_MS = 24 * 3_600_000;
 
 // ── Per-provider tracking state ────────────────────────────────────────
 
@@ -42,6 +44,10 @@ export class QuotaScheduler {
   > & Omit<SchedulerConfig, 'baseIntervalMs' | 'activeIntervalMs' | 'idleIntervalMs'>;
 
   private readonly states = new Map<string, ProviderState>();
+  /** Last poll START per provider (any path) — enforces adapter floors for forced polls. */
+  private readonly lastPollStartedAt = new Map<string, number>();
+  /** Windows missing from the last successful poll, per provider — prune hysteresis. */
+  private readonly missingWindows = new Map<string, Map<string, number>>();
   private running = false;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -164,11 +170,35 @@ export class QuotaScheduler {
     const adapter = this.config.registry.get(providerConfig.provider);
     if (!adapter) return;
 
+    // Adapter-declared minimum spacing applies to EVERY entry path — the
+    // scheduled tick already respects it via clampInterval, but forced polls
+    // (dashboard auto-refresh every 60s, manual button) would otherwise slam
+    // rate-limited upstreams like Claude's 5-minute usage endpoint. Skip
+    // quietly: the scheduled tick owns the cadence.
+    const minPollMs = adapter.minPollIntervalMs ?? 0;
+    const lastStarted = this.lastPollStartedAt.get(providerId);
+    if (minPollMs > 0 && lastStarted !== undefined && Date.now() - lastStarted < minPollMs) {
+      return;
+    }
+    this.lastPollStartedAt.set(providerId, Date.now());
+
+    // Sibling instances of the same provider type with their own hand-set keys
+    // — the env-var override in resolveCredentials stands down when these
+    // differ, so a multi-account setup isn't silently collapsed onto one key.
+    // DISABLED siblings count too: their stored key still marks that account
+    // as occupied, otherwise disabling the env-key sibling lets the override
+    // clobber the remaining account's hand-set key.
+    const siblingApiKeys = this.config.db
+      .listProviders()
+      .filter((p) => p.provider === providerConfig.provider && p.id !== providerId)
+      .map((p) => p.credentials.apiKey)
+      .filter((k): k is string => k !== undefined);
+
     // Keep-alive: resolve freshest token from the official CLI file; on
     // auth_expired, proactively refresh via the provider's token endpoint and retry.
     let quota: ProviderQuota;
     try {
-      quota = await fetchWithRefresh(providerConfig, adapter);
+      quota = await fetchWithRefresh(providerConfig, adapter, { siblingApiKeys });
     } catch (err) {
       // On fetch error, don't update tracking state — but DO surface it,
       // otherwise a broken credential reads as "等待采集" indefinitely.
@@ -204,6 +234,38 @@ export class QuotaScheduler {
           },
           providerId,
         );
+      }
+      // A window missing from a successful poll may be transient (adapter
+      // fallback, upstream hiccup) — pruning on a short hysteresis erased a
+      // week of history when Antigravity fell back to its Google variant for
+      // two polls. Give it a full day before treating the rename/removal as
+      // real; the ghost row shows a stale value for that day, which is the
+      // honest trade against destroying data. Best-effort, never fatal.
+      try {
+        const keep = new Set(quota.windows.map((w) => w.name));
+        const known = new Set(
+          this.config.db
+            .getLatestSnapshots()
+            .filter((s) => s.providerId === providerId)
+            .map((s) => s.windowName),
+        );
+        const now = Date.now();
+        const tracking = this.missingWindows.get(providerId) ?? new Map<string, number>();
+        for (const name of known) {
+          if (keep.has(name)) tracking.delete(name);
+          else if (!tracking.has(name)) tracking.set(name, now);
+        }
+        for (const [name, since] of tracking) {
+          if (keep.has(name)) {
+            tracking.delete(name);
+          } else if (now - since >= MISSING_WINDOW_TTL_MS) {
+            this.config.db.pruneWindows(providerId, [name]);
+            tracking.delete(name);
+          }
+        }
+        this.missingWindows.set(providerId, tracking);
+      } catch {
+        // non-fatal
       }
     } catch (err) {
       // Provider deleted from the DB while this poll was in flight (FK

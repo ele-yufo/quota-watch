@@ -43,6 +43,17 @@ describe("readShellEnvVar", () => {
     expect(readShellEnvVar("KEY")).toBeNull();
   });
 
+  it("strips an unquoted trailing inline comment, keeps inner hashes", () => {
+    // the parsed value is sent as a Bearer key on every poll — a pasted
+    // `key # rotated` note must not become part of the credential
+    write("export KEY=sk-live # rotated 2026-09\n");
+    expect(readShellEnvVar("KEY")).toBe("sk-live");
+    write("export KEY=sk-key#1\n");
+    expect(readShellEnvVar("KEY")).toBe("sk-key#1");
+    write('export KEY="sk-quoted # not a comment"\n');
+    expect(readShellEnvVar("KEY")).toBe("sk-quoted # not a comment");
+  });
+
   it("returns null when the file or variable is absent", () => {
     expect(readShellEnvVar("NOPE")).toBeNull();
     write("OTHER=1\n");

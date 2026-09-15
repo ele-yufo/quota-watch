@@ -40,7 +40,9 @@ function toWindow(name: string, kind: WindowKind, d: KimiUsageItem): QuotaWindow
     kind,
     used,
     total: limit,
-    unit: 'percent',
+    // Counts (requests), NOT percent — unit:'percent' here made the Drawer
+    // print "34% / 120%" beside a bar showing the true 28%.
+    unit: 'requests',
     remaining,
     remainingPct,
     resetAt: d.resetTime ?? null,
@@ -97,6 +99,12 @@ export const kimiProvider: ProviderAdapter = {
     if (res.data.usage) {
       const w = toWindow('weekly (7d)', 'week', res.data.usage);
       if (w) windows.push(w);
+    }
+
+    if (windows.length === 0) {
+      // All entries unparseable — a failed poll, not an empty account (an
+      // empty-ok here would mark the provider healthy and prune its history).
+      return quotaError('kimi', config, 'error', 'no parseable usage windows in response');
     }
 
     return quotaOk('kimi', config.id, 'kimi-code', windows);

@@ -50,6 +50,25 @@ const mockLegacyResponse = {
   },
 };
 
+// Live 2026-09-09: unified-billing accounts no longer get creditUsagePercent
+// on ?format=credits — this shape must fall through to the legacy URL.
+const mockCreditsNoPercentResponse = {
+  config: {
+    currentPeriod: {
+      type: 'USAGE_PERIOD_TYPE_WEEKLY',
+      start: '2026-09-08T19:32:00.160668+00:00',
+      end: '2026-09-15T19:32:00.160668+00:00',
+    },
+    onDemandCap: { val: 0 },
+    onDemandUsed: { val: 0 },
+    isUnifiedBillingUser: true,
+    prepaidBalance: { val: 0 },
+    topUpMethod: 'TOP_UP_METHOD_SAVED_PAYMENT_METHOD',
+    billingPeriodStart: '2026-09-08T19:32:00.160668+00:00',
+    billingPeriodEnd: '2026-09-15T19:32:00.160668+00:00',
+  },
+};
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -59,6 +78,15 @@ function jsonResponse(status: number, body: unknown): Response {
 
 describe('grokProvider', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
+
+  /** Answer per URL: credits view vs bare legacy billing. */
+  function mockBillingByUrl(credits: unknown, legacy: unknown): void {
+    fetchSpy.mockImplementation(async (url: string) =>
+      String(url).includes('format=credits')
+        ? jsonResponse(200, credits)
+        : jsonResponse(200, legacy),
+    );
+  }
 
   beforeEach(() => {
     fetchSpy = vi.fn();
@@ -120,26 +148,48 @@ describe('grokProvider', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer xai-test-token');
   });
 
-  it('falls back to the legacy monthlyLimit/used shape', async () => {
+  it('reports no window when unified billing drops creditUsagePercent', async () => {
+    // live 2026-09-09: period present, percent gone, chat still works —
+    // neither "0% remaining" nor a fabricated 0-used/100-total placeholder is
+    // truthful, and a placeholder would make recommend_channel rank Grok as
+    // full headroom. Empty windows read as "no data" everywhere downstream.
+    fetchSpy.mockResolvedValue(jsonResponse(200, mockCreditsNoPercentResponse));
+    const quota = await grokProvider.fetchQuota(makeConfig());
+
+    expect(quota.status).toBe('ok');
+    expect(quota.windows).toHaveLength(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses the legacy shape straight off the credits response without a second request', async () => {
     fetchSpy.mockResolvedValue(jsonResponse(200, mockLegacyResponse));
     const quota = await grokProvider.fetchQuota(makeConfig());
 
+    expect(quota.status).toBe('ok');
     const w = quota.windows[0]!;
     expect(w.kind).toBe('month');
-    expect(w.unit).toBe('credits');
     expect(w.used).toBe(431);
     expect(w.total).toBe(500);
-    expect(w.remainingPct).toBeCloseTo(13.8);
-    expect(w.resetAt).toBe('2026-09-01T00:00:00+00:00');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces a legacy re-fetch network failure instead of a shape mismatch', async () => {
+    // credits view without currentPeriod → the legacy URL re-fetch happens
+    fetchSpy.mockImplementation(async (url: string) => {
+      if (String(url).includes('format=credits')) return jsonResponse(200, { config: {} });
+      throw new Error('ETIMEDOUT');
+    });
+    const quota = await grokProvider.fetchQuota(makeConfig());
+
+    expect(quota.status).toBe('error');
+    expect(quota.error).toContain('ETIMEDOUT');
   });
 
   it('legacy fallback: over-limit (blocked) reads 0% remaining, never negative', async () => {
     // live-observed blocked account: monthlyLimit 0, used 431, chat 403s
-    fetchSpy.mockResolvedValue(
-      jsonResponse(200, {
-        config: { monthlyLimit: { val: 0 }, used: { val: 431 }, billingPeriodEnd: '2026-09-01T00:00:00+00:00' },
-      }),
-    );
+    mockBillingByUrl({ config: {} }, {
+      config: { monthlyLimit: { val: 0 }, used: { val: 431 }, billingPeriodEnd: '2026-09-01T00:00:00+00:00' },
+    });
     const quota = await grokProvider.fetchQuota(makeConfig());
 
     const w = quota.windows[0]!;
@@ -167,7 +217,7 @@ describe('grokProvider', () => {
   });
 
   it('errors when neither response shape matches', async () => {
-    fetchSpy.mockResolvedValue(jsonResponse(200, { config: {} }));
+    mockBillingByUrl({ config: {} }, { config: {} });
     const quota = await grokProvider.fetchQuota(makeConfig());
     expect(quota.status).toBe('error');
     expect(quota.error).toContain('neither');

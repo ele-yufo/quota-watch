@@ -63,6 +63,17 @@ export const glmCnProvider: ProviderAdapter = {
       return quotaError('glm-cn', config, 'error', res.error);
     }
 
+    // The envelope can answer HTTP 200 with a business error — check it before
+    // touching limits, and treat an unparseable limit set as a FAILED poll:
+    // returning quotaOk([]) would mark the poll healthy AND wipe every stored
+    // window via the scheduler's stale-window pruning.
+    if (typeof res.data.code === 'number' && res.data.code !== 200) {
+      return quotaError('glm-cn', config, 'error', `API envelope code ${res.data.code}`);
+    }
+    if (res.data.success === false) {
+      return quotaError('glm-cn', config, 'error', 'API envelope success=false');
+    }
+
     // Two TOKENS_LIMIT entries: 5h session (unit=3, number=5, no reset time)
     // + weekly (unit=6, number=1, nextResetTime at the week boundary).
     const tokenLimits = (res.data.data?.limits ?? []).filter((l) => l.type === 'TOKENS_LIMIT');
@@ -88,6 +99,11 @@ export const glmCnProvider: ProviderAdapter = {
     const windows: QuotaWindow[] = [];
     if (session) windows.push(toWindow('session (5h)', 'session', session));
     if (weekly) windows.push(toWindow('weekly (7d)', 'week', weekly));
+
+    if (windows.length === 0) {
+      // Limits came back empty/renamed — a failed poll, not an empty account.
+      return quotaError('glm-cn', config, 'error', 'no parseable TOKENS_LIMIT windows in response');
+    }
 
     return quotaOk('glm-cn', config.id, res.data.data?.level ?? 'Coding Plan', windows);
   },

@@ -226,7 +226,9 @@ describe('glmCnProvider', () => {
 
   // ── empty / no TOKENS_LIMIT ────────────────────────────────────
 
-  it('returns empty windows when limits array is empty', async () => {
+  it('fails the poll (not empty-ok) when limits array is empty', async () => {
+    // empty-ok would mark the poll healthy AND wipe stored windows via
+    // pruneStaleWindows — an unparseable set is an error, not an account.
     mockFetch({
       body: {
         code: 200,
@@ -236,9 +238,8 @@ describe('glmCnProvider', () => {
     });
 
     const result = await glmCnProvider.fetchQuota(makeConfig());
-    expect(result.status).toBe('ok');
-    expect(result.windows).toEqual([]);
-    expect(result.plan).toBe('max');
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('no parseable');
   });
 
   it('filters out non-TOKENS_LIMIT entries (TIME_LIMIT ignored)', async () => {
@@ -257,9 +258,8 @@ describe('glmCnProvider', () => {
     });
 
     const result = await glmCnProvider.fetchQuota(makeConfig());
-    expect(result.status).toBe('ok');
-    expect(result.windows).toEqual([]);
-    expect(result.plan).toBe('max');
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('no parseable');
   });
 
   // ── API call correctness (bare token, no Bearer) ───────────────

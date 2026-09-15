@@ -33,7 +33,14 @@ export function predictConsumption(
 
   const earliestTime = new Date(earliest.timestamp).getTime();
   const latestTime = new Date(latest.timestamp).getTime();
-  const hoursBetween = (latestTime - earliestTime) / MILLISECONDS_PER_HOUR;
+  // Snapshots are change-only (a quiet window writes no rows), so `latest`
+  // is when the value last MOVED, not now. Measure the span up to the present
+  // instead: a burst that stopped hours ago must decay the rate toward zero,
+  // not keep predicting at burst velocity until old points age out.
+  const hoursBetween = Math.max(
+    (Date.now() - earliestTime) / MILLISECONDS_PER_HOUR,
+    (latestTime - earliestTime) / MILLISECONDS_PER_HOUR,
+  );
 
   // Guard against zero-duration span
   if (hoursBetween <= 0) {
