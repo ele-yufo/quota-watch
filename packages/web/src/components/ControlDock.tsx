@@ -11,6 +11,13 @@ const TITLE: Record<ThemeMode, string> = {
   system: "主题：跟随系统（点击切换白天）",
 };
 
+declare global {
+  interface Window {
+    /** Live theme choice — kept current by the head script and this dock. */
+    __themeMode?: ThemeMode;
+  }
+}
+
 function resolveTheme(mode: ThemeMode): "light" | "dark" {
   if (mode === "system") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -19,6 +26,7 @@ function resolveTheme(mode: ThemeMode): "light" | "dark" {
 }
 
 function applyTheme(mode: ThemeMode): void {
+  window.__themeMode = mode;
   document.documentElement.dataset.theme = resolveTheme(mode);
 }
 
@@ -78,9 +86,19 @@ export function ControlDock({
 
   // Read the persisted choice after mount — the value is decided by the
   // head script pre-paint, so no SSR/client mismatch matters before this.
+  // An invalid stored value reconciles to system AND re-applies, agreeing
+  // with what the head script already resolved.
   useEffect(() => {
-    const stored = localStorage.getItem("theme-mode") as ThemeMode | null;
-    setMode(stored && ORDER.includes(stored) ? stored : "system");
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("theme-mode");
+    } catch {
+      stored = null;
+    }
+    const valid = stored !== null && ORDER.includes(stored as ThemeMode);
+    const resolved = (valid ? stored : "system") as ThemeMode;
+    setMode(resolved);
+    applyTheme(resolved);
   }, []);
 
   function cycleTheme() {

@@ -68,7 +68,9 @@ html[data-theme="dark"] {
   --qw-ink: #ede4d3;
   --qw-ink-2: #b3a78f;
   --qw-ink-3: #8d8168;
-  --qw-ink-4: #5c5340;
+  /* faded rung — 3.4:1 on the dark paper (above the light theme's own
+     faded-rung contrast, below body copy: metadata only, never sentences) */
+  --qw-ink-4: #75695a;
 
   --qw-line: #ede4d338;
   --qw-line-soft: #ede4d31a;
