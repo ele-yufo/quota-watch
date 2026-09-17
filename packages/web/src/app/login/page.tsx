@@ -39,7 +39,7 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center px-6">
       <form
         onSubmit={submit}
-        className="w-full max-w-xs rounded-2xl border border-line bg-paper-2/60 p-6 shadow-lg shadow-black/5"
+        className="w-full max-w-xs rounded-2xl border border-line bg-paper-2/60 p-6 shadow-lg shadow-black/5 dark:shadow-black/40"
       >
         <h1 className="font-serif text-[22px] font-semibold tracking-tight text-ink">Quota Watch</h1>
         <p className="mt-1 text-[12px] leading-relaxed text-ink-3">

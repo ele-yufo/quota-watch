@@ -1,44 +1,86 @@
 @import "tailwindcss";
 
 /* ───────────────────────────────────────────────────────────
-   quota-watch — single editorial "broadsheet" theme (Magazine)
+   quota-watch — editorial "broadsheet" theme (Magazine)
 
+   白天：暖米纸面 + 深暖墨。夜间是它的对偶——同一张纸进了暗房：
+   深暖炭底 + 米白墨，颗粒、色带、滚动条、选区全部随世界翻转。
    Components use a small set of semantic tokens (paper = surface ladder,
-   ink = text ladder, line = rules, vermillion/ochre = danger/warn) defined
-   below. Multi-theme support was removed — this file is the only palette.
+   ink = text ladder, line = rules, vermillion/ochre = danger/warn).
    ─────────────────────────────────────────────────────────── */
 
-/* Tailwind reads these to generate utilities (bg-paper, text-ink, …). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Tailwind reads these to generate utilities (bg-paper, text-ink, …).
+   They point at the runtime switch vars below so utilities follow
+   data-theme without any class changes. */
 @theme {
-  --color-paper: #f5f0e8;
-  --color-paper-2: #efe8da;
-  --color-paper-3: #e8e0cf;
+  --color-paper: var(--qw-paper);
+  --color-paper-2: var(--qw-paper-2);
+  --color-paper-3: var(--qw-paper-3);
 
-  --color-ink: #1a1815;
-  --color-ink-2: #6b6358;
-  --color-ink-3: #8a8275;
-  --color-ink-4: #b8ad9c;
+  --color-ink: var(--qw-ink);
+  --color-ink-2: var(--qw-ink-2);
+  --color-ink-3: var(--qw-ink-3);
+  --color-ink-4: var(--qw-ink-4);
 
-  --color-line: #1a181540;
-  --color-line-soft: #1a181518;
+  --color-line: var(--qw-line);
+  --color-line-soft: var(--qw-line-soft);
 
-  --color-vermillion: #c44536; /* low / danger */
-  --color-ochre: #8b5a2b;      /* warn / tight  */
+  --color-vermillion: var(--qw-vermillion); /* low / danger */
+  --color-ochre: var(--qw-ochre);           /* warn / tight  */
 
   --font-serif: var(--font-fraunces), "Songti SC", "Noto Serif SC", Georgia, serif;
   --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
 }
 
-/* ── Base element styling driven by the tokens above ───────── */
+/* ── Runtime token values — html[data-theme] picks the world ── */
 
-:root {
-  --qw-body-bg: var(--color-paper);
-  /* paper grain — the material this broadsheet is printed on */
+html {
+  --qw-paper: #f5f0e8;
+  --qw-paper-2: #efe8da;
+  --qw-paper-3: #e8e0cf;
+
+  --qw-ink: #1a1815;
+  --qw-ink-2: #6b6358;
+  --qw-ink-3: #8a8275;
+  --qw-ink-4: #b8ad9c;
+
+  --qw-line: #1a181540;
+  --qw-line-soft: #1a181518;
+
+  --qw-vermillion: #c44536;
+  --qw-ochre: #8b5a2b;
+
+  /* paper grain — dark speckle pressed into warm stock */
   --qw-body-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.1 0 0 0 0 0.09 0 0 0 0 0.08 0 0 0 0.05 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-  --qw-body-size: auto;
+  --qw-body-bg: var(--qw-paper);
   --qw-selection: rgba(196, 69, 54, 0.18);
   --qw-scroll-thumb: #c9bfa9;
   color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --qw-paper: #16120d;
+  --qw-paper-2: #1c1712;
+  --qw-paper-3: #241e16;
+
+  --qw-ink: #ede4d3;
+  --qw-ink-2: #b3a78f;
+  --qw-ink-3: #8d8168;
+  --qw-ink-4: #5c5340;
+
+  --qw-line: #ede4d338;
+  --qw-line-soft: #ede4d31a;
+
+  --qw-vermillion: #e06a50;
+  --qw-ochre: #cf9450;
+
+  /* the same stock, held to the light from behind: pale speckle */
+  --qw-body-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 0.93 0 0 0 0 0.89 0 0 0 0 0.8 0 0 0 0.035 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  --qw-selection: rgba(224, 106, 80, 0.28);
+  --qw-scroll-thumb: #453c2e;
+  color-scheme: dark;
 }
 
 html {
@@ -48,7 +90,7 @@ html {
 body {
   background-color: var(--qw-body-bg);
   background-image: var(--qw-body-image);
-  background-size: var(--qw-body-size);
+  background-size: auto;
   color: var(--color-ink);
   font-family: var(--font-serif);
   -webkit-font-smoothing: antialiased;
