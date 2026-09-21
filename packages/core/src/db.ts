@@ -26,7 +26,8 @@ export interface LatestSnapshot {
 // ── Display ordering (shared: CLI status, dashboard TUI, daemon+web /quota) ──
 // Progress-bar usage windows come first, PAYG balance rows sink to the bottom.
 // Within a tier: PROVIDER_AUTH_META displayPriority (lower first), then name —
-// that priority is how Kimi Code ranks above Grok despite sorting later.
+// the explicit -50..-10 chain pins the user's preferred order
+// (Claude → Codex → GLM → Kimi → Grok); unprioritized providers follow alphabetically.
 const DISPLAY_PRIORITY = new Map(
   PROVIDER_AUTH_META.map((m) => [m.slug, m.displayPriority ?? 0]),
 );

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { QuotaDB } from "../src/db.js";
+import { QuotaDB, sortSnapshotsForDisplay } from "../src/db.js";
 import type { ProviderConfig, UsageSnapshot } from "../src/db.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -213,5 +213,44 @@ describe("QuotaDB", () => {
 
     db.performMaintenance(30);
     expect(db.getSnapshots("openai-main", "daily", "2000-01-01T00:00:00.000Z")).toHaveLength(1);
+  });
+});
+
+describe("sortSnapshotsForDisplay", () => {
+  const row = (
+    providerType: string,
+    displayName: string,
+    windowKind: "session" | "balance",
+  ): LatestSnapshot => ({
+    providerId: `${providerType}-id`,
+    displayName,
+    providerType,
+    windowName: "w",
+    windowKind,
+    used: 1,
+    total: 100,
+    unit: "requests",
+    remainingPct: 99,
+    resetAt: null,
+    timestamp: "2026-09-21T00:00:00.000Z",
+  });
+
+  it("pins the preferred provider order; balance rows sink to the bottom", () => {
+    const rows = [
+      row("grok", "Grok", "session"),
+      row("kimi", "Kimi", "session"),
+      row("aihubmix", "AIHubMix", "balance"),
+      row("glm-cn", "GLM CN", "session"),
+      row("claude", "Claude Code", "session"),
+      row("codex", "OpenAI Codex", "session"),
+    ];
+    expect(sortSnapshotsForDisplay(rows).map((r) => r.displayName)).toEqual([
+      "Claude Code",
+      "OpenAI Codex",
+      "GLM CN",
+      "Kimi",
+      "Grok",
+      "AIHubMix",
+    ]);
   });
 });

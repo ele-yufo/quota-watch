@@ -37,6 +37,7 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     slug: "claude",
     displayName: "Claude Code",
     authKind: "oauth-file",
+    displayPriority: -50,
     cliSource: "claude-cli",
     cliLoginHint: "登录一次官方 CLI：`claude` → /login",
   },
@@ -44,6 +45,7 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     slug: "codex",
     displayName: "OpenAI Codex",
     authKind: "oauth-file",
+    displayPriority: -40,
     cliSource: "codex-cli",
     cliLoginHint: "登录一次官方 CLI：`codex login`",
   },
@@ -51,6 +53,7 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     slug: "glm-cn",
     displayName: "智谱清言 GLM",
     authKind: "api-key",
+    displayPriority: -30,
     fields: [
       {
         key: "apiKey",
@@ -83,7 +86,7 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     displayName: "Kimi",
     authKind: "api-key",
     envVar: "KIMI_API_KEY",
-    displayPriority: -10,
+    displayPriority: -20,
     fields: [
       { key: "apiKey", label: "API Key", hint: "Kimi Code 计划的 API key（本机 ~/.shell_env 有 KIMI_API_KEY 可一键导入）" },
     ],
@@ -100,6 +103,7 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     // xAI OAuth; reuses the token store the grok CLI / cliproxyapi share.
     slug: "grok",
     displayName: "Grok",
+    displayPriority: -10,
     authKind: "oauth-file",
     cliSource: "grok-cli",
     cliLoginHint: "登录一次官方 Grok CLI：`grok login`（或 cliproxyapi 的 xai 登录）",
