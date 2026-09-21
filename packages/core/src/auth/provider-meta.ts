@@ -80,8 +80,9 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     slug: "kimi",
     displayName: "Kimi",
     authKind: "api-key",
+    envVar: "KIMI_API_KEY",
     fields: [
-      { key: "apiKey", label: "API Key", hint: "Kimi Code 计划的 API key" },
+      { key: "apiKey", label: "API Key", hint: "Kimi Code 计划的 API key（本机 ~/.shell_env 有 KIMI_API_KEY 可一键导入）" },
     ],
   },
   {
