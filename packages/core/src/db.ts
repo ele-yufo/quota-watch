@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import type { ProviderConfig, UsageSnapshot } from "./types.js";
 import { classifyWindowKind, type WindowKind } from "./windows.js";
+import { PROVIDER_AUTH_META } from "./auth/provider-meta.js";
 
 export type { ProviderConfig, UsageSnapshot } from "./types.js";
 
@@ -20,6 +21,30 @@ export interface LatestSnapshot {
   remainingPct: number;
   resetAt: string | null;
   timestamp: string;
+}
+
+// ── Display ordering (shared: CLI status, dashboard TUI, daemon+web /quota) ──
+// Progress-bar usage windows come first, PAYG balance rows sink to the bottom.
+// Within a tier: PROVIDER_AUTH_META displayPriority (lower first), then name —
+// that priority is how Kimi Code ranks above Grok despite sorting later.
+const DISPLAY_PRIORITY = new Map(
+  PROVIDER_AUTH_META.map((m) => [m.slug, m.displayPriority ?? 0]),
+);
+
+export function sortSnapshotsForDisplay(rows: LatestSnapshot[]): LatestSnapshot[] {
+  return rows.slice().sort(
+    (a, b) =>
+      (a.windowKind === "balance" ? 1 : 0) - (b.windowKind === "balance" ? 1 : 0) ||
+      (DISPLAY_PRIORITY.get(a.providerType) ?? 0) - (DISPLAY_PRIORITY.get(b.providerType) ?? 0) ||
+      a.displayName.localeCompare(b.displayName) ||
+      a.windowName.localeCompare(b.windowName),
+  );
+}
+
+/** 0 = has progress-bar windows, 1 = balance-only, 2 = no snapshots yet. */
+export function providerDisplayTier(snaps: LatestSnapshot[]): number {
+  if (snaps.length === 0) return 2;
+  return snaps.some((s) => s.windowKind !== "balance") ? 0 : 1;
 }
 
 // ── Versioned migrations (PRAGMA user_version) ──────────────────────────
@@ -482,19 +507,21 @@ export class QuotaDB {
     `;
     const params: unknown[] = providerId ? [providerId] : [];
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
-    return rows.map((r) => ({
-      providerId: r.provider_id as string,
-      displayName: r.display_name as string,
-      providerType: r.provider_type as string,
-      windowName: r.window_name as string,
-      windowKind: this.rowKind(r),
-      used: r.used as number,
-      total: r.total as number,
-      unit: r.unit as string,
-      remainingPct: r.remaining_pct as number,
-      resetAt: (r.reset_at as string) ?? null,
-      timestamp: r.timestamp as string,
-    }));
+    return sortSnapshotsForDisplay(
+      rows.map((r) => ({
+        providerId: r.provider_id as string,
+        displayName: r.display_name as string,
+        providerType: r.provider_type as string,
+        windowName: r.window_name as string,
+        windowKind: this.rowKind(r),
+        used: r.used as number,
+        total: r.total as number,
+        unit: r.unit as string,
+        remainingPct: r.remaining_pct as number,
+        resetAt: (r.reset_at as string) ?? null,
+        timestamp: r.timestamp as string,
+      })),
+    );
   }
 
   private rowKind(r: Record<string, unknown>): WindowKind {

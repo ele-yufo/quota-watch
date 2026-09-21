@@ -20,8 +20,10 @@ import { createServer, type Server } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import type { QuotaDB } from "./db.js";
+import { sortSnapshotsForDisplay, providerDisplayTier } from "./db.js";
 import type { QuotaScheduler } from "./scheduler.js";
 import { sortWindowsByKind } from "./windows.js";
+import { PROVIDER_AUTH_META } from "./auth/provider-meta.js";
 
 /** Read and JSON-parse a request body (capped), null on empty/oversize/invalid. */
 async function readJsonBody(req: IncomingMessage, maxBytes = 4096): Promise<unknown> {
@@ -106,14 +108,27 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 /** GET /quota response — shared shape with the web dashboard's /api/quota. */
 export function buildQuotaResponse(db: QuotaDB): QuotaApiProvider[] {
   const providers = db.listProviders();
-  const snapshots = db.getLatestSnapshots();
+  const snapshots = sortSnapshotsForDisplay(db.getLatestSnapshots());
   const byPid = new Map<string, typeof snapshots>();
   for (const s of snapshots) {
     const arr = byPid.get(s.providerId) ?? [];
     arr.push(s);
     byPid.set(s.providerId, arr);
   }
-  return providers.map((p) => ({
+  // Same ordering contract as sortSnapshotsForDisplay: progress-bar providers
+  // first, balance-only providers last, no-snapshot providers trailing. Within
+  // a tier, displayPriority then name.
+  const priority = (type: string): number =>
+    PROVIDER_AUTH_META.find((m) => m.slug === type)?.displayPriority ?? 0;
+  return providers
+    .slice()
+    .sort(
+      (a, b) =>
+        providerDisplayTier(byPid.get(a.id) ?? []) - providerDisplayTier(byPid.get(b.id) ?? []) ||
+        priority(a.provider) - priority(b.provider) ||
+        a.displayName.localeCompare(b.displayName),
+    )
+    .map((p) => ({
     providerId: p.id,
     displayName: p.displayName,
     providerType: p.provider,

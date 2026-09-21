@@ -28,6 +28,8 @@ export interface ProviderAuthMeta {
   envVar?: string;
   /** false = credential reuse not yet wired; setup UI hides it */
   available?: boolean;
+  /** display ranking across surfaces (lower = earlier); default 0 = alphabetical */
+  displayPriority?: number;
 }
 
 export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
@@ -81,6 +83,7 @@ export const PROVIDER_AUTH_META: ProviderAuthMeta[] = [
     displayName: "Kimi",
     authKind: "api-key",
     envVar: "KIMI_API_KEY",
+    displayPriority: -10,
     fields: [
       { key: "apiKey", label: "API Key", hint: "Kimi Code 计划的 API key（本机 ~/.shell_env 有 KIMI_API_KEY 可一键导入）" },
     ],
