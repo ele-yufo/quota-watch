@@ -42,7 +42,10 @@ interface ScopedLimit {
 const cooldownMap = new Map<string, number>();
 const consecutive429 = new Map<string, number>();
 const BASE_COOLDOWN_MS = 180_000;
-const MAX_COOLDOWN_MS = 60 * 60_000; // never back off past 1h
+/** Cap for the exponential streak on its own (no Retry-After header). */
+const MAX_BACKOFF_MS = 15 * 60_000;
+/** Absolute cap — only Retry-After can push the wait out this far. */
+const MAX_COOLDOWN_MS = 60 * 60_000;
 
 // Keyed by provider config id (not the raw token) so the cooldown survives
 // token rotation — otherwise a freshly-refreshed token bypasses the 429
@@ -59,15 +62,24 @@ function isInCooldown(providerId: string): boolean {
 
 /**
  * Honor Retry-After when sent (Anthropic's usage endpoint has returned ~48min
- * windows) but never below the exponential backoff — a server that keeps
- * answering `Retry-After: 1` must not turn into a 1s poll loop. A flat short
- * cooldown re-hits a still-limited endpoint and re-extends the ban.
+ * windows) — it is the server's authoritative signal, so wait exactly what it
+ * asks, floored at BASE_COOLDOWN_MS (a server that keeps answering
+ * `Retry-After: 1` must not turn into a 1s poll loop; re-hitting a
+ * still-limited endpoint re-extends the ban). The exponential streak applies
+ * only when Retry-After is absent and stops at MAX_BACKOFF_MS: the previous
+ * max(backoff, retryAfter) let a long streak push the cooldown PAST the
+ * server's own number (observed live: streak at the old 1h cap while
+ * Retry-After said ~28min, so Claude data stayed stale for hours even though
+ * a retry was allowed well before the next attempt).
  */
 function setCooldown(providerId: string, retryAfterMs?: number): void {
   const n = (consecutive429.get(providerId) ?? 0) + 1;
   consecutive429.set(providerId, n);
-  const backoff = Math.min(BASE_COOLDOWN_MS * 2 ** (n - 1), MAX_COOLDOWN_MS);
-  const ms = Math.min(Math.max(backoff, retryAfterMs ?? 0), MAX_COOLDOWN_MS);
+  const backoff = Math.min(BASE_COOLDOWN_MS * 2 ** (n - 1), MAX_BACKOFF_MS);
+  const ms =
+    retryAfterMs !== undefined
+      ? Math.min(Math.max(retryAfterMs, BASE_COOLDOWN_MS), MAX_COOLDOWN_MS)
+      : backoff;
   cooldownMap.set(providerId, Date.now() + ms);
 }
 

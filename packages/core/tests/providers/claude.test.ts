@@ -209,6 +209,40 @@ describe('claudeProvider', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('exponential streak caps at 15min and never extends the wait past Retry-After', async () => {
+    const { _cooldownRemainingMs } = await import('../../src/providers/claude.js');
+    const cfg = makeConfig({ id: 'claude-cap', credentials: { token: 't' } });
+    const r429 = { ok: false, status: 429, statusText: 'Too Many Requests' };
+
+    vi.useFakeTimers();
+    try {
+      // 4 consecutive 429s without Retry-After: 180s → 360s → 720s → 1440s
+      // raw, which must cap at MAX_BACKOFF_MS (15min), not keep doubling.
+      for (const advanceMs of [0, 181_000, 361_000, 721_000]) {
+        if (advanceMs) vi.setSystemTime(Date.now() + advanceMs);
+        fetchSpy.mockResolvedValueOnce(r429);
+        await claudeProvider.fetchQuota(cfg);
+      }
+      const fourth = _cooldownRemainingMs('claude-cap');
+      expect(fourth).toBeGreaterThan(800_000); // a real backoff, not the base
+      expect(fourth).toBeLessThanOrEqual(900_000); // …but capped at 15min (raw: 24min)
+
+      // A long streak (backoff at the 15min cap) must NOT push the cooldown
+      // past what the server asked: Retry-After 600s → wait ~600s, not 900s.
+      vi.setSystemTime(Date.now() + 901_000);
+      fetchSpy.mockResolvedValueOnce({
+        ok: false, status: 429, statusText: 'Too Many Requests',
+        headers: { get: (h: string) => (h === 'retry-after' ? '600' : null) },
+      });
+      await claudeProvider.fetchQuota(cfg);
+      const fifth = _cooldownRemainingMs('claude-cap');
+      expect(fifth).toBeGreaterThan(500_000);
+      expect(fifth).toBeLessThanOrEqual(600_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('backoff grows exponentially on consecutive 429s, Retry-After can only lengthen it, success resets', async () => {
     const { _cooldownRemainingMs } = await import('../../src/providers/claude.js');
     const cfg = makeConfig({ id: 'claude-bo', credentials: { token: 't' } });
