@@ -1,5 +1,6 @@
 import type { ProviderQuota } from './types.js';
 import type { ProviderRegistry } from './providers/index.js';
+import type { ProviderAdapter } from './providers/types.js';
 import type { QuotaDB } from './db.js';
 import { fetchWithRefresh } from './auth/token-manager.js';
 
@@ -46,6 +47,13 @@ export class QuotaScheduler {
   private readonly states = new Map<string, ProviderState>();
   /** Last poll START per provider (any path) — enforces adapter floors for forced polls. */
   private readonly lastPollStartedAt = new Map<string, number>();
+  /** Providers with a poll currently in flight. The minPollIntervalMs floor
+   *  only exists for adapters that declare one — a scheduled tick and a
+   *  forced pollNow (dashboard auto-refresh) landing in the same instant
+   *  otherwise hit the upstream twice per cycle (observed live: codex/kimi
+   *  logging every window twice, 6ms apart, while the dashboard's 60s
+   *  force-poll ran in lockstep with the 60s idle tick). */
+  private readonly inFlightPolls = new Set<string>();
   /** Windows missing from the last successful poll, per provider — prune hysteresis. */
   private readonly missingWindows = new Map<string, Map<string, number>>();
   private running = false;
@@ -170,6 +178,9 @@ export class QuotaScheduler {
     const adapter = this.config.registry.get(providerConfig.provider);
     if (!adapter) return;
 
+    // Never two concurrent polls of one provider — see inFlightPolls.
+    if (this.inFlightPolls.has(providerId)) return;
+
     // Adapter-declared minimum spacing applies to EVERY entry path — the
     // scheduled tick already respects it via clampInterval, but forced polls
     // (dashboard auto-refresh every 60s, manual button) would otherwise slam
@@ -181,6 +192,19 @@ export class QuotaScheduler {
       return;
     }
     this.lastPollStartedAt.set(providerId, Date.now());
+    this.inFlightPolls.add(providerId);
+    try {
+      await this.runPoll(providerId, providerConfig, adapter);
+    } finally {
+      this.inFlightPolls.delete(providerId);
+    }
+  }
+
+  private async runPoll(
+    providerId: string,
+    providerConfig: NonNullable<ReturnType<QuotaDB['getProvider']>>,
+    adapter: ProviderAdapter,
+  ): Promise<void> {
 
     // Sibling instances of the same provider type with their own hand-set keys
     // — the env-var override in resolveCredentials stands down when these

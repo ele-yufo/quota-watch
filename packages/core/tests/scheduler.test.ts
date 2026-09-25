@@ -430,6 +430,36 @@ describe('QuotaScheduler', () => {
     scheduler.stop();
   });
 
+  it('dedupes concurrent polls of one provider even without a minPollIntervalMs floor', async () => {
+    // A scheduled tick and a forced pollNow can land in the same instant.
+    // Providers that declare no floor (codex, kimi…) used to run BOTH calls
+    // concurrently — every window logged twice, 6ms apart.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetchSpy = vi.fn(async () => {
+      await gate; // hold the first poll in flight
+      return makeQuota(50);
+    });
+    const adapter: ProviderAdapter = {
+      id: 'test',
+      displayName: 'Test',
+      fetchQuota: fetchSpy as unknown as ProviderAdapter['fetchQuota'],
+    };
+    const onQuotaFetched = vi.fn();
+    const registry = makeMockRegistry(adapter);
+    const db = makeMockDb([makeProviderConfig()]);
+    const scheduler = new QuotaScheduler({ registry, db, onQuotaFetched });
+
+    const first = scheduler.pollNow('test-provider');
+    const second = scheduler.pollNow('test-provider');
+    release();
+    await Promise.all([first, second]);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(onQuotaFetched).toHaveBeenCalledTimes(1);
+    scheduler.stop();
+  });
+
   it('stores snapshots in DB for each window', async () => {
     const quota: ProviderQuota = {
       provider: 'test',
