@@ -7,12 +7,13 @@ import { MagazineDashboard } from "@/components/dashboards/MagazineDashboard";
 import { ControlDock } from "@/components/ControlDock";
 import { Drawer } from "@/components/Drawer";
 
-// Near-realtime dashboard: the page re-reads the DB every 10s, and every 60s
-// it also forces a provider poll round — otherwise an idle/backed-off daemon
-// can leave the numbers frozen for minutes and the page looks dead even
-// though it re-renders.
+// Near-realtime dashboard: the page re-reads the DB every 10s. It does NOT
+// force provider polls on a timer — the daemon's adaptive scheduler already
+// polls at 10s/15s/60s cadences, and a periodic forced fan-out here doubled
+// every no-floor provider's polling rate while a tab was visible (codex and
+// kimi logged each window twice, 6ms apart, in lockstep with the idle tick).
+// Forced polls stay on the manual button only.
 const REFRESH_MS = 10_000;
-const FORCE_POLL_MS = 60_000;
 // A hung GET must never wedge refresh() past its `running` guard — that would
 // silently kill the interval, the button and the visibility refresh at once.
 const FETCH_TIMEOUT_MS = 15_000;
@@ -115,8 +116,8 @@ export default function Page() {
   }, [refresh]);
 
   const pollNow = useCallback(
-    async (silent = false) => {
-      if (!silent) setPolling(true);
+    async () => {
+      setPolling(true);
       try {
         // The server allows 30s for a full fan-out (slow upstreams) — a 15s
         // client abort would flag "failed" a poll that's still running.
@@ -130,7 +131,7 @@ export default function Page() {
         setPollFailed(true);
       } finally {
         await refresh();
-        if (!silent) setPolling(false);
+        setPolling(false);
       }
     },
     [refresh],
@@ -139,12 +140,6 @@ export default function Page() {
   useEffect(() => {
     refresh();
     const id = setInterval(refresh, REFRESH_MS);
-    // Periodic full refresh: force the daemon to poll providers, then re-read.
-    // Skipped while the tab is hidden (background timers are throttled anyway,
-    // and polling into a hidden tab is wasted provider traffic).
-    const forceId = setInterval(() => {
-      if (!document.hidden) void pollNow(true);
-    }, FORCE_POLL_MS);
     // Returning to the tab (phone especially) should show fresh data at once.
     const onVisible = () => {
       if (!document.hidden) void refresh();
@@ -152,10 +147,9 @@ export default function Page() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(id);
-      clearInterval(forceId);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh, pollNow]);
+  }, [refresh]);
 
   // The drawer's provider disappeared from the latest data (removed in setup,
   // or its rows pruned) — close it instead of showing the frozen snapshot.
